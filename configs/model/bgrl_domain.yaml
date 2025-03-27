@@ -1,0 +1,40 @@
+_target_: src.models.bgrl_module.BGRLLitModule
+
+net:
+  _target_: src.models.components.bgrl.BGRL
+  encoder:
+    _target_: src.models.components.two_layer_gcn.TwoLayerGCN
+    input_size: 50
+    hidden_size: 32
+    output_size: 16
+    dropout: 0.5
+  projector:
+    _target_: src.models.components.bgrl_projector.BGRLProjector
+    input_size: 16
+    output_size: 16
+    hidden_size: 64
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.1
+  patience: 10
+
+# compile model for faster training with pytorch 2.0
+compile: false
+
+augmentation: 'baseline'
+mm: 0.99
+drop_edge_p1: 0.0
+drop_edge_p2: 0.0
+drop_feat_p1: 0.0
+drop_feat_p2: 0.0
+warmup_steps: 1000
+

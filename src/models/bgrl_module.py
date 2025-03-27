@@ -1,9 +1,13 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, List, Callable
 import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torch.nn.functional import cosine_similarity
+from utils.graph_augmentations import get_graph_augmentation
+from utils.schedulers import CosineDecayScheduler
 
+
+# TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
 
 class BGRLLitModule(LightningModule):
     """
@@ -15,7 +19,8 @@ class BGRLLitModule(LightningModule):
     cosine similarity loss for training.
 
     Key Features:
-    - Implements the `training_step` method for a single training step.
+    - Implements the `training_step` method for a si
+    ngle training step.
     - Supports learning rate and momentum scheduling.
     - Logs training metrics such as loss.
     - Configures optimizers and learning rate schedulers.
@@ -26,18 +31,16 @@ class BGRLLitModule(LightningModule):
 
     def __init__(
         self,
-        model : torch.nn.Module,
+        net : torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        augmentation_method: str = "baseline",
+        augmentation: str = "baseline",
         mm: int = 0.99,
-        drop_edge_p1: float = 0.0,
-        drop_edge_p2: float = 0.0,
-        drop_feat_p1: float = 0.0,
-        drop_feat_p2: float = 0.0,
-        warmup_steps: int = 1000,
-        num_iterations: int = 1e5,
+        drop_edge_p1: float = 0.1,
+        drop_edge_p2: float = 0.1,
+        drop_feat_p1: float = 0.1,
+        drop_feat_p2: float = 0.1
     ) -> None:
         """
         Initialize the BGRLLitModule.
@@ -73,12 +76,8 @@ class BGRLLitModule(LightningModule):
         self.save_hyperparameters(logger=False)
 
         # initialize the BGRL model
-        self.model = model
-        self.augmentation_method = augmentation_method
-
-        # optimizer and scheduler
-        self.optimizer = optimizer
-        self.scheduler = scheduler
+        self.net = net
+        self.augmentation = augmentation
 
         # loss function
         self.criterion = self.cosine_similarity_loss()
@@ -94,9 +93,6 @@ class BGRLLitModule(LightningModule):
 
         # metrics
         self.train_loss = MeanMetric()
-        self.val_loss = MeanMetric()
-        self.test_loss = MeanMetric()
-        self.val_acc_best = MaxMetric()
 
     def forward(self, online_x, target_x):
         """
@@ -116,7 +112,7 @@ class BGRLLitModule(LightningModule):
             - online_q: The predictions from the online network.
             - target_y: The target embeddings from the target network.
         """
-        return self.model(online_x, target_x)
+        return self.net(online_x, target_x)
     
     def cosine_similarity_loss(self, online_q1, target_y2, online_q2, target_y1):
         """
@@ -161,30 +157,25 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The training loss for the batch.
         """
-        transform1 = augment_graph(batch, self.augmentation_method, self.drop_edge_p1, self.drop_feat_p1)
-        transform2 = augment_graph(batch, self.augmentation_method, self.drop_edge_p1, self.drop_feat_p1)
+        transform1 = get_graph_augmentation(batch, self.augmentation, self.drop_edge_p1, self.drop_feat_p1)
+        transform2 = get_graph_augmentation(batch, self.augmentation, self.drop_edge_p2, self.drop_feat_p2)
 
-        x1, x2 = transform1(batch), transform2(batch)
+        x1, edge_index1, edge_weight1 = transform1(batch)
+        x2, edge_index2, edge_weight2 = transform2(batch)
 
-        # Update learning rate and momentum
-        lr = self.lr_scheduler.get(self.global_step)
-        for g in self.trainer.optimizers[0].param_groups:
-            g["lr"] = lr
-        mm = 1 - self.mm_scheduler.get(self.global_step)
+        # forward pass
+        q1, y2 = self.forward(x1, x2)
+        q2, y1 = self.forward(x2, x1)
 
-        # Forward pass
-        q1, y2 = self(x1, x2)
-        q2, y1 = self(x2, x1)
+        # compute loss
+        loss = self.criterion(q1, y2, q2, y1)
 
-        # Compute loss
-        loss = self.cosine_similarity_loss(q1, y2, q2, y1)
-
-        # Log metrics
+        # log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
 
-        # Update target network
-        self.update_target_network(mm)
+        # update target network
+        self.update_target_network(self.mm)
 
         return loss
 
@@ -220,7 +211,7 @@ class BGRLLitModule(LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "val/loss",
+                    "monitor": "train/loss",
                     "interval": "epoch",
                     "frequency": 1,
                 },
