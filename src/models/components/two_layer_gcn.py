@@ -42,6 +42,12 @@ class TwoLayerGCN(nn.Module):
         self.conv1 = GCNConv(input_size, hidden_size)
         self.conv2 = GCNConv(hidden_size, output_size)
         self.dropout = dropout
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.conv1.reset_parameters()
+        self.conv2.reset_parameters()
+        self.bn1.reset_parameters()
 
     def forward(
             self, 
