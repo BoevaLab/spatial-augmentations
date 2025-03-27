@@ -1,9 +1,7 @@
-from typing import Any, Dict, List, Tuple
 import os
 import hydra
 import torch
 import rootutils
-from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
