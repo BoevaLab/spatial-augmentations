@@ -54,7 +54,7 @@ Example:
 import copy
 import torch
 from torch import nn
-from typing import Tuple
+from typing import Tuple, Optional
 
 class BGRL(nn.Module):
     """
@@ -142,22 +142,36 @@ class BGRL(nn.Module):
 
     def forward(
         self, 
-        online_x: torch.Tensor, 
-        target_x: torch.Tensor
+        online_x: torch.Tensor,
+        online_edge_index: torch.Tensor,
+        target_x: torch.Tensor,
+        target_edge_index: torch.Tensor,
+        online_edge_weight: Optional[torch.Tensor] = None, 
+        target_edge_weight: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the BGRL model.
 
         This method processes two views of the input graph through the online and target networks. 
-        The online encoder's output is passed through the projector to generate predictions, while 
-        the target encoder's output serves as the target for the predictions.
+        The online encoder takes the node features, edge indices, and optional edge weights of the 
+        input graph and generates embeddings. These embeddings are passed through the projector to 
+        produce predictions. The target encoder processes the second view of the graph to generate 
+        stable target embeddings.
 
         Parameters:
         ----------
         online_x : torch.Tensor
-            Input graph for the online encoder.
+            Node features for the online encoder.
+        online_edge_index : torch.Tensor
+            Edge indices for the online encoder.
         target_x : torch.Tensor
-            Input graph for the target encoder.
+            Node features for the target encoder.
+        target_edge_index : torch.Tensor
+            Edge indices for the target encoder.
+        online_edge_weight : Optional[torch.Tensor], optional
+            Edge weights for the online encoder, by default None.
+        target_edge_weight : Optional[torch.Tensor], optional
+            Edge weights for the target encoder, by default None.
 
         Returns:
         -------
@@ -167,12 +181,12 @@ class BGRL(nn.Module):
             - target_y: The target embeddings from the target network.
         """
         # forward online network and predict with projector
-        online_y = self.online_encoder(online_x)
+        online_y = self.online_encoder(online_x, online_edge_index, online_edge_weight)
         online_q = self.projector(online_y)
 
         # forward target network
         with torch.no_grad():
-            target_y = self.target_encoder(target_x).detach()
+            target_y = self.target_encoder(target_x, target_edge_index, target_edge_weight).detach()
         
         return online_q, target_y
     
