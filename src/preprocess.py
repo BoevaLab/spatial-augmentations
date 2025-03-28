@@ -1,9 +1,17 @@
-from typing import Any, Dict, List, Tuple
+"""
+DEPRECATION NOTICE:
+-------------------
+This script is outdated and its functionality has been implemented elsewhere.
+Please refer to the updated implementation in the `SpatialOmicsDataModule` class
+located in `src/data/spatial_omics_datamodule.py`.
+
+This file is retained for reference purposes only and should not be used for preprocessing tasks.
+"""
+
 import os
 import hydra
 import torch
 import rootutils
-from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 

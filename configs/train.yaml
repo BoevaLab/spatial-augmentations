@@ -2,12 +2,13 @@
 
 # specify here default configuration
 # order of defaults determines the order in which configs override each other
+# e.g. the last config in the list will override all previous configs
 defaults:
   - _self_
-  - data: mnist
-  - model: mnist
+  - data: spatial_omics
+  - model: bgrl_domain
   - callbacks: default
-  - logger: null # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: csv
   - trainer: default
   - paths: default
   - extras: default
@@ -28,7 +29,7 @@ defaults:
   - debug: null
 
 # task name, determines output directory path
-task_name: "train"
+task_name: "train_domain"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -40,10 +41,10 @@ train: True
 
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
-test: True
+test: False
 
 # simply provide checkpoint path to resume training
 ckpt_path: null
 
 # seed for random number generators in pytorch, numpy and python.random
-seed: null
+seed: 02092000
