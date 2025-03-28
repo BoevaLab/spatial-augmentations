@@ -1,10 +1,11 @@
 _target_: src.data.spatial_omics_datamodule.SpatialOmicsDataModule
 data_dir: ${paths.data_dir}/domain/raw/
 processed_dir: ${paths.data_dir}/domain/processed/
-batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+batch_size: 2
 num_workers: 0
 pin_memory: False
 min_cells: 3
 min_genes: 3
 graph_method: "knn"
 n_neighbors: 10
+redo_preprocess: False

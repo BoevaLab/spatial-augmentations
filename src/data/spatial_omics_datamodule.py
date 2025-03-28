@@ -92,6 +92,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         min_genes: int = 3,
         graph_method: str = "knn",
         n_neighbors: int = 10,
+        redo_preprocess: bool = False,
     ) -> None:
         """
         Initialize the SpatialOmicsDataModule.
@@ -177,7 +178,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         if not self.graphs and not self.dataset:
             processed_file = os.path.join(self.processed_dir, "dataset.pt")
 
-            if os.path.exists(processed_file):
+            if os.path.exists(processed_file) and not self.hparams.redo_preprocess:
                 # load preprocessed graphs
                 self.dataset = torch.load(processed_file, weights_only=False)
                 log.info(f"Loaded preprocessed graphs from {os.path.join(self.processed_dir, processed_file)}.")

@@ -205,10 +205,12 @@ def create_graph(adata, sample_name, method="knn", n_neighbors=10):
         # convert adjacency matrix to COO format for edge index
         edge_index = np.array(np.nonzero(adj))
         edge_index = torch.tensor(edge_index, dtype=torch.long)
+        edge_weight = torch.ones(edge_index.shape[1], dtype=torch.float)
 
         return Data(
             x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index,
+            edge_weight=edge_weight,
             sample_name=sample_name
         )
 

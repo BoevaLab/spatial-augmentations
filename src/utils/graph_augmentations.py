@@ -17,7 +17,7 @@ Functions:
 """
 
 import torch
-from torch_geometric.utils import dropout_adj
+from torch_geometric.utils import dropout_edge
 from copy import deepcopy
 from torch_geometric.transforms import Compose
 
@@ -26,15 +26,18 @@ class DropFeatures:
     """
     Drops node features with a specified probability.
 
-    This transformation randomly masks node features with a probability `p`. For the `cell_type` feature,
-    it replaces the value with an "unassigned" cell type, while other features are set to zero.
+    This transformation randomly masks node features with a probability `p`. If a specific feature index
+    (e.g., `cell_type_feat`) is provided, it can apply a custom transformation to that feature, such as
+    replacing its value with a default value.
 
     Parameters:
     -----------
-    dataset : Dataset
-        The dataset containing node features and metadata.
     p : float
         The probability of dropping a feature. Must be between 0 and 1.
+    cell_type_feat : int, optional
+        The index of the feature to treat as "cell type". If None, no special handling is applied. Default is None.
+    unassigned_value : float, optional
+        The value to assign to the "cell type" feature when it is dropped. Default is 0.
 
     Methods:
     --------
@@ -44,11 +47,11 @@ class DropFeatures:
         Returns a string representation of the transformation.
     """
 
-    def __init__(self, dataset, p=None):
+    def __init__(self, p, cell_type_feat=None, unassigned_value=0):
         assert 0. < p < 1., 'Dropout probability has to be between 0 and 1, but got %.2f' % p
         self.p = p
-        self.cell_type_feat = dataset.node_feature_names.index('cell_type')
-        self.unassigned_cell_type = dataset.cell_type_mapping[dataset.unassigned_cell_type]
+        self.cell_type_feat = cell_type_feat
+        self.unassigned_value = unassigned_value
 
     def __call__(self, data):
         """
@@ -64,13 +67,18 @@ class DropFeatures:
         Data
             The transformed graph data with some features dropped.
         """
+        # Create a random dropout mask
         drop_mask = torch.empty(data.x.size(), dtype=torch.float32, device=data.x.device).uniform_(0, 1) < self.p
-        # mask cell type with unassigned cell type, other feats with 0
-        type_mask = drop_mask[:, self.cell_type_feat]
-        types = data.x[:, self.cell_type_feat]
-        types[type_mask] = self.unassigned_cell_type
+
+        # If a specific feature index is provided, handle it separately
+        if self.cell_type_feat is not None:
+            type_mask = drop_mask[:, self.cell_type_feat]
+            types = data.x[:, self.cell_type_feat]
+            types[type_mask] = self.unassigned_value
+            data.x[:, self.cell_type_feat] = types
+
+        # Apply the dropout mask to all features
         data.x[drop_mask] = 0
-        data.x[:, self.cell_type_feat] = types
         return data
 
     def __repr__(self):
@@ -82,7 +90,9 @@ class DropFeatures:
         str
             A string describing the transformation and its parameters.
         """
-        return '{}(p={})'.format(self.__class__.__name__, self.p)
+        return '{}(p={}, cell_type_feat={}, unassigned_value={})'.format(
+            self.__class__.__name__, self.p, self.cell_type_feat, self.unassigned_value
+        )
 
 class DropEdges:
     """
@@ -125,15 +135,9 @@ class DropEdges:
         Data
             The transformed graph data with some edges dropped.
         """
-        edge_index = data.edge_index
-        edge_attr = data.edge_attr if 'edge_attr' in data else None
-
-        edge_index, edge_attr = dropout_adj(edge_index, edge_attr, p=self.p, force_undirected=self.force_undirected)
-        # edge_index, edge_id = dropout_edge(edge_index, p=self.p, force_undirected=self.force_undirected)
-
+        edge_index, edge_mask = dropout_edge(data.edge_index, p=self.p)
         data.edge_index = edge_index
-        if edge_attr is not None:
-            data.edge_attr = edge_attr
+        data.edge_weight = data.edge_weight[edge_mask]
         return data
 
     def __repr__(self):
@@ -147,8 +151,19 @@ class DropEdges:
         """
         return '{}(p={}, force_undirected={})'.format(self.__class__.__name__, self.p, self.force_undirected)
 
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
 
-def get_graph_augmentation(dataset, augmentation_method, drop_edge_p, drop_feat_p):
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return '{}(p={}, force_undirected={})'.format(self.__class__.__name__, self.p, self.force_undirected)
+
+
+def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
 
@@ -157,8 +172,6 @@ def get_graph_augmentation(dataset, augmentation_method, drop_edge_p, drop_feat_
 
     Parameters:
     -----------
-    dataset : Dataset
-        The dataset containing graph data and metadata.
     augmentation_method : str
         The augmentation method to use. Currently, only 'baseline' is supported.
     drop_edge_p : float
@@ -188,7 +201,7 @@ def get_graph_augmentation(dataset, augmentation_method, drop_edge_p, drop_feat_
 
         # drop features
         if drop_feat_p > 0.:
-            transforms.append(DropFeatures(dataset, drop_feat_p))
+            transforms.append(DropFeatures(drop_feat_p))
         return Compose(transforms)
     
     else:

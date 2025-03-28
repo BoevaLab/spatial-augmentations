@@ -80,7 +80,7 @@ class BGRLLitModule(LightningModule):
         self.augmentation = augmentation
 
         # loss function
-        self.criterion = self.cosine_similarity_loss()
+        self.criterion = self.cosine_similarity_loss
 
         # momentum for the target network updates
         self.mm = mm
@@ -94,7 +94,15 @@ class BGRLLitModule(LightningModule):
         # metrics
         self.train_loss = MeanMetric()
 
-    def forward(self, online_x, target_x):
+    def forward(
+        self, 
+        online_x: torch.Tensor,
+        online_edge_index: torch.Tensor,
+        online_edge_weight: torch.Tensor,
+        target_x: torch.Tensor,
+        target_edge_index: torch.Tensor,
+        target_edge_weight: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the BGRL model.
 
@@ -112,7 +120,13 @@ class BGRLLitModule(LightningModule):
             - online_q: The predictions from the online network.
             - target_y: The target embeddings from the target network.
         """
-        return self.net(online_x, target_x)
+        return self.net(online_x, 
+                        online_edge_index, 
+                        online_edge_weight, 
+                        target_x, 
+                        target_edge_index, 
+                        target_edge_weight
+                )
     
     def cosine_similarity_loss(self, online_q1, target_y2, online_q2, target_y1):
         """
@@ -157,15 +171,29 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The training loss for the batch.
         """
-        transform1 = get_graph_augmentation(batch, self.augmentation, self.drop_edge_p1, self.drop_feat_p1)
-        transform2 = get_graph_augmentation(batch, self.augmentation, self.drop_edge_p2, self.drop_feat_p2)
+        transform1 = get_graph_augmentation(self.augmentation, self.drop_edge_p1, self.drop_feat_p1)
+        transform2 = get_graph_augmentation(self.augmentation, self.drop_edge_p2, self.drop_feat_p2)
 
-        x1, edge_index1, edge_weight1 = transform1(batch)
-        x2, edge_index2, edge_weight2 = transform2(batch)
-
+        augmented1 = transform1(batch)
+        augmented2 = transform2(batch)
+        
         # forward pass
-        q1, y2 = self.forward(x1, x2)
-        q2, y1 = self.forward(x2, x1)
+        q1, y2 = self.forward(
+            augmented1.x, 
+            augmented1.edge_index, 
+            augmented1.edge_weight, 
+            augmented2.x, 
+            augmented2.edge_index, 
+            augmented2.edge_weight
+        )
+        q2, y1 = self.forward(
+            augmented2.x, 
+            augmented2.edge_index, 
+            augmented2.edge_weight, 
+            augmented1.x, 
+            augmented1.edge_index, 
+            augmented1.edge_weight
+        )
 
         # compute loss
         loss = self.criterion(q1, y2, q2, y1)
@@ -175,7 +203,7 @@ class BGRLLitModule(LightningModule):
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # update target network
-        self.update_target_network(self.mm)
+        self.net.update_target_network(self.mm)
 
         return loss
 

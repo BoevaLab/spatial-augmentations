@@ -144,10 +144,10 @@ class BGRL(nn.Module):
         self, 
         online_x: torch.Tensor,
         online_edge_index: torch.Tensor,
+        online_edge_weight: torch.Tensor,
         target_x: torch.Tensor,
         target_edge_index: torch.Tensor,
-        online_edge_weight: Optional[torch.Tensor] = None, 
-        target_edge_weight: Optional[torch.Tensor] = None
+        target_edge_weight: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the BGRL model.
