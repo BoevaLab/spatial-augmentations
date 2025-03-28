@@ -1,3 +1,37 @@
+"""
+Training Script for Spatial Omics Models.
+
+This script handles the training and evaluation of models using PyTorch Lightning. It leverages Hydra for configuration 
+management and supports features such as logging, callbacks, and hyperparameter optimization.
+
+Main Features:
+--------------
+- Instantiates the data module, model, trainer, callbacks, and loggers based on the provided Hydra configuration.
+- Supports training, validation, and testing workflows.
+- Logs hyperparameters and metrics for tracking experiments.
+- Handles checkpointing and restores the best model for testing.
+
+Usage:
+------
+Train on CPU:
+>>> python src/train.py trainer=cpu
+Train on GPU:
+>>> python src/train.py trainer=gpu
+Train on MacOS with MPS:
+>>> python src/train.py trainer=mps
+Train on multiple GPUs:
+>>> python src/train.py trainer=gpu trainer.devices=2
+Train model with chosen experiment configuration from configs/experiment/:
+>>> python src/train.py experiment=experiment_name.yaml
+You can override any parameter from command line like this:
+>>> python src/train.py trainer.max_epochs=20 data.batch_size=64
+
+Functions:
+----------
+- train: Handles the core training and testing logic.
+- main: Entry point for the script, integrates Hydra for configuration management.
+"""
+
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -9,22 +43,6 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-# ------------------------------------------------------------------------------------ #
-# the setup_root above is equivalent to:
-# - adding project root dir to PYTHONPATH
-#       (so you don't need to force user to install project as a package)
-#       (necessary before importing any local modules e.g. `from src import utils`)
-# - setting up PROJECT_ROOT environment variable
-#       (which is used as a base for paths in "configs/paths/default.yaml")
-#       (this way all filepaths are the same no matter where you run the code)
-# - loading environment variables from ".env" in root dir
-#
-# you can remove it if you:
-# 1. either install project as a package or move entry files to project root dir
-# 2. set `root_dir` to "." in "configs/paths/default.yaml"
-#
-# more info: https://github.com/ashleve/rootutils
-# ------------------------------------------------------------------------------------ #
 
 from src.utils import (
     RankedLogger,
@@ -41,14 +59,19 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
-    training.
+    """
+    Train the model and optionally evaluate it on a test set using the best weights 
+    obtained during training.
 
-    This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
-    failure. Useful for multiruns, saving info about the crash, etc.
+    Parameters:
+    ----------
+    cfg : DictConfig
+        A configuration object composed by Hydra.
 
-    :param cfg: A DictConfig configuration composed by Hydra.
-    :return: A tuple with metrics and dict with all instantiated objects.
+    Returns:
+    -------
+    Tuple[Dict[str, Any], Dict[str, Any]]
+        A tuple containing metrics and a dictionary with all instantiated objects.
     """
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
@@ -107,10 +130,18 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
-    """Main entry point for training.
+    """
+    Main entry point for training.
 
-    :param cfg: DictConfig configuration composed by Hydra.
-    :return: Optional[float] with optimized metric value.
+    Parameters:
+    ----------
+    cfg : DictConfig
+        A configuration object composed by Hydra.
+
+    Returns:
+    -------
+    Optional[float]
+        The optimized metric value, if applicable.
     """
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
