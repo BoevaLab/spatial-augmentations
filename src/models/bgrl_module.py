@@ -3,8 +3,8 @@ import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torch.nn.functional import cosine_similarity
-from utils.graph_augmentations import get_graph_augmentation
-from utils.schedulers import CosineDecayScheduler
+from src.utils.graph_augmentations import get_graph_augmentation
+from src.utils.schedulers import CosineDecayScheduler
 
 
 # TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
