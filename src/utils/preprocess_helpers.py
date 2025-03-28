@@ -142,7 +142,7 @@ def euclid_dist(t1, t2):
     return np.sqrt(sum)
 
 
-def create_graph(adata, method="knn", n_neighbors=10):
+def create_graph(adata, sample_name, method="knn", n_neighbors=10):
     """
     Creates a graph representation of spatial data from an AnnData object.
 
@@ -150,6 +150,8 @@ def create_graph(adata, method="knn", n_neighbors=10):
     ----------
     adata : AnnData
         The AnnData object containing spatial and gene expression data.
+    sample_name : str
+        The name of the sample (determined from filenames).
     method : str, optional
         The method to use for graph construction. Options are "knn" or "pairwise". Default is "knn".
         - "knn": Constructs a k-nearest neighbors graph based on spatial distances.
@@ -204,7 +206,11 @@ def create_graph(adata, method="knn", n_neighbors=10):
         edge_index = np.array(np.nonzero(adj))
         edge_index = torch.tensor(edge_index, dtype=torch.long)
 
-        return Data(x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), edge_index=edge_index)
+        return Data(
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
+            edge_index=edge_index,
+            sample_name=sample_name
+        )
 
     elif method == "pairwise":
         X = adata.obsm["spatial"]
@@ -227,7 +233,12 @@ def create_graph(adata, method="knn", n_neighbors=10):
         edge_index = torch.tensor(edge_index, dtype=torch.long)
         edge_attr = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float)
 
-        return Data(x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), edge_index=edge_index, edge_attr=edge_attr)
+        return Data(
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
+            edge_index=edge_index, 
+            edge_attr=edge_attr,
+            sample_name=sample_name
+        )
         
     else:
         raise ValueError("Invalid method. Choose between 'knn' and 'pairwise'")

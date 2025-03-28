@@ -28,7 +28,7 @@ Usage:
 
 # TODO: add way to identify each graph for testing (e.g., each batch has graph + name / id)
 
-from typing import Optional
+from typing import Optional, Dict, Any
 import os
 import torch
 from lightning import LightningDataModule
@@ -138,7 +138,8 @@ class SpatialOmicsDataModule(LightningDataModule):
         Verify that the raw data files exist.
 
         This method checks if the directory containing raw spatial omics data exists.
-        If the directory does not exist, it raises a FileNotFoundError.
+        If the directory does not exist, it raises a FileNotFoundError. Lightning ensures 
+        that `self.prepare_data()` is called only within a single process on CPU.
 
         Raises:
         -------
@@ -155,42 +156,54 @@ class SpatialOmicsDataModule(LightningDataModule):
         Load and preprocess spatial omics data.
 
         This method loads preprocessed graphs from disk if they exist. If not, it preprocesses
-        the raw data, constructs graphs, and saves the preprocessed graphs to disk.
+        the raw data, constructs graphs, and saves the preprocessed graphs to disk. This method 
+        is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, 
+        and `trainer.predict()`,
 
         Parameters:
         ----------
         stage : str, optional
             The stage of the setup process (e.g., "fit", "test"). Default is None.
         """
-        processed_file = os.path.join(self.processed_dir, "dataset.pt")
+        # divide batch size by the number of devices.
+        if self.trainer is not None:
+            if self.hparams.batch_size % self.trainer.world_size != 0:
+                raise RuntimeError(
+                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
+                )
+            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        if os.path.exists(processed_file):
-            # load preprocessed graphs
-            self.dataset = torch.load(processed_file, weights_only=False)
-            log.info(f"Loaded preprocessed graphs from {os.path.join(self.processed_dir, processed_file)}.")
-            # append each graph to self.graphs
-            self.graphs = [self.dataset[i] for i in range(len(self.dataset))]
-        else:
-            log.info(f"Preprocessing data from {self.data_dir} and saving to {self.processed_dir}.")
-            # read samples into dict
-            file_paths = [os.path.join(self.data_dir, f) for f in os.listdir(self.data_dir) if f.endswith(".h5ad")]
-            samples = read_samples_into_dict(file_paths)
+        # load and process datasets only if not loaded already
+        if not self.graphs and not self.dataset:
+            processed_file = os.path.join(self.processed_dir, "dataset.pt")
 
-            # preprocess samples and create graphs
-            self.graphs = []
-            for sample_name, adata in samples.items():
-                if "X_pca" in adata.obsm:
-                    log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
-                else:
-                    preprocess_sample(adata, min_cells=self.min_cells, min_genes=self.min_genes)
-                graph = create_graph(adata, method=self.graph_method, n_neighbors=self.n_neighbors)
-                self.graphs.append(graph)
-                save_sample(adata, graph, self.processed_dir, sample_name)
+            if os.path.exists(processed_file):
+                # load preprocessed graphs
+                self.dataset = torch.load(processed_file, weights_only=False)
+                log.info(f"Loaded preprocessed graphs from {os.path.join(self.processed_dir, processed_file)}.")
+                # append each graph to self.graphs
+                self.graphs = [self.dataset[i] for i in range(len(self.dataset))]
+            else:
+                log.info(f"Preprocessing data from {self.data_dir} and saving to {self.processed_dir}.")
+                # read samples into dict
+                file_paths = [os.path.join(self.data_dir, f) for f in os.listdir(self.data_dir) if f.endswith(".h5ad")]
+                samples = read_samples_into_dict(file_paths)
 
-            # save preprocessed graphs
-            self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples.keys(), self.graphs)})
-            torch.save(self.dataset, os.path.join(self.processed_dir, "dataset.pt"))
-            log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
+                # preprocess samples and create graphs
+                self.graphs = []
+                for sample_name, adata in samples.items():
+                    if "X_pca" in adata.obsm:
+                        log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
+                    else:
+                        preprocess_sample(adata, min_cells=self.min_cells, min_genes=self.min_genes)
+                    graph = create_graph(adata, sample_name=sample_name, method=self.graph_method, n_neighbors=self.n_neighbors)
+                    self.graphs.append(graph)
+                    save_sample(adata, graph, self.processed_dir, sample_name)
+
+                # save preprocessed graphs
+                self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples.keys(), self.graphs)})
+                torch.save(self.dataset, os.path.join(self.processed_dir, "dataset.pt"))
+                log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -242,6 +255,30 @@ class SpatialOmicsDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
+    
+    def teardown(self, stage: Optional[str] = None) -> None:
+        """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
+        `trainer.test()`, and `trainer.predict()`.
+
+        :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
+            Defaults to ``None``.
+        """
+        pass
+
+    def state_dict(self) -> Dict[Any, Any]:
+        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
+
+        :return: A dictionary containing the datamodule state that you want to save.
+        """
+        return {}
+
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
+        `state_dict()`.
+
+        :param state_dict: The datamodule state returned by `self.state_dict()`.
+        """
+        pass
     
 
 if __name__ == "__main__":
