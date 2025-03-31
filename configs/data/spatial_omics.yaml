@@ -1,12 +1,12 @@
 _target_: src.data.spatial_omics_datamodule.SpatialOmicsDataModule
 data_dir: ${paths.data_dir}/domain/raw/
 processed_dir: ${paths.data_dir}/domain/processed/
-batch_size: 2
+batch_size: 1
 num_workers: 0
 pin_memory: False
 min_cells: 3
 min_genes: 3
 n_pca_components: 50
 graph_method: "knn"
-n_neighbors: 10
-redo_preprocess: False
+n_neighbors: 21.75
+redo_preprocess: True
