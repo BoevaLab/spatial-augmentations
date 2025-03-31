@@ -204,5 +204,20 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
             transforms.append(DropFeatures(drop_feat_p))
         return Compose(transforms)
     
+    elif augmentation_method == 'advanced':
+        transforms = list()
+
+        # make copy of graph
+        transforms.append(deepcopy)
+
+        # drop edges
+        if drop_edge_p > 0.:
+            transforms.append(DropEdges(drop_edge_p))
+
+        # drop features
+        if drop_feat_p > 0.:
+            transforms.append(DropFeatures(drop_feat_p))
+        return Compose(transforms)
+    
     else:
         raise ValueError('Unknown augmentation method: {}'.format(augmentation_method))
