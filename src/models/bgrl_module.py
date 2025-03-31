@@ -1,13 +1,18 @@
-from typing import Any, Dict, Tuple, List, Callable
+from typing import Any, Dict, Tuple, List
 import torch
+import scanpy as sc
+import os
+import csv
 from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
+from torchmetrics import MeanMetric
+from torchmetrics.clustering import NormalizedMutualInfoScore, AdjustedRandScore
 from torch.nn.functional import cosine_similarity
 from src.utils.graph_augmentations import get_graph_augmentation
 from src.utils.schedulers import CosineDecayScheduler
-
+from src.utils.clustering_utils import set_leiden_resolution
 
 # TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
+# TODO: file path in test step (make as config)
 
 class BGRLLitModule(LightningModule):
     """
@@ -91,8 +96,13 @@ class BGRLLitModule(LightningModule):
         self.drop_feat_p1 = drop_feat_p1
         self.drop_feat_p2 = drop_feat_p2
 
-        # metrics
+        # loss metrics (only calculated during training)
         self.train_loss = MeanMetric()
+
+        # test metrics (only calculated during testing)
+        self.test_nmi = NormalizedMutualInfoScore()
+        self.test_ars = AdjustedRandScore()
+        self.test_outputs = []
 
     def forward(
         self, 
@@ -206,6 +216,86 @@ class BGRLLitModule(LightningModule):
         self.net.update_target_network(self.mm)
 
         return loss
+    
+    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
+        # run online encoder 
+        with torch.no_grad():
+            node_embeddings = self.net.online_encoder(batch.x, batch.edge_index, batch.edge_weight)
+
+        # load adata object
+        sample_name = batch.sample_name[0]
+        file_path = os.path.join("data/domain/processed/", sample_name + ".h5ad")
+        adata = sc.read_h5ad(file_path)
+
+        # append cell embeddings to adata object
+        cell_embeddings_np = node_embeddings.cpu().numpy()
+        adata.obsm["cell_embeddings"] = cell_embeddings_np
+        
+        # get ground truth labels
+        domain_name = None
+        if sample_name.startswith("MERFISH_small"):
+            domain_name = "domain"
+        elif sample_name.startswith("STARmap"):
+            domain_name = "region"
+        elif sample_name.startswith("BaristaSeq"):
+            domain_name = "layer"
+        ground_truth_labels = adata.obs[domain_name]
+
+        # determine resolution based on number of ground truth labels
+        sc.pp.neighbors(adata, use_rep="cell_embeddings")
+        resolution = set_leiden_resolution(adata, target_num_clusters=ground_truth_labels.nunique())
+        # perform leiden clustering
+        sc.tl.leiden(adata, resolution=resolution)
+        leiden_labels = adata.obs["leiden"]
+
+        # convert ground truth labels and leiden labels to PyTorch tensors
+        ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
+        ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)        
+        leiden_labels = adata.obs["leiden"].astype("category").cat.codes
+        leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+
+        # calculate metrics
+        nmi = self.test_nmi(ground_truth_labels, leiden_labels)
+        ari = self.test_ars(ground_truth_labels, leiden_labels)
+
+        # log metrics for each graph
+        self.log("test/batch_idx", batch_idx, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("test/nmi", nmi, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("test/ari", ari, on_step=True, on_epoch=False, prog_bar=False)
+
+        # save metrics for aggregation
+        self.test_outputs.append({"sample_name": sample_name, "nmi": nmi, "ari": ari})
+
+    def on_test_epoch_end(self) -> None:
+        """
+        Aggregate metrics at the end of the test epoch.
+        """
+        # get the logger's save directory
+        save_dir = self.logger.log_dir if hasattr(self.logger, "log_dir") else self.logger.save_dir
+        if save_dir is None:
+            raise ValueError("Logger does not have a valid save directory.")
+
+        # save graph-level metrics to a CSV file
+        file_path = os.path.join(save_dir, "test_results.csv")
+        with open(file_path, mode="w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=["sample_name", "nmi", "ari"])
+            writer.writeheader()
+            writer.writerows(self.test_outputs)
+
+        # extract all NMI and ARI scores
+        nmi_scores = torch.stack([x["nmi"] for x in self.test_outputs])
+        ari_scores = torch.stack([x["ari"] for x in self.test_outputs])
+
+        # compute mean scores
+        mean_nmi = nmi_scores.mean()
+        mean_ari = ari_scores.mean()
+
+        # log the mean scores
+        self.log("test/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
+        self.log("test/ari_mean", mean_ari, on_epoch=True, prog_bar=True)
+
+        # clear the outputs for the next test run
+        self.test_outputs.clear()
 
     def setup(self, stage: str) -> None:
         """
