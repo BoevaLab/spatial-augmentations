@@ -12,7 +12,7 @@ from src.utils.schedulers import CosineDecayScheduler
 from src.utils.clustering_utils import set_leiden_resolution
 
 # TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
-# TODO: file path in test step (make as config)
+# TODO: file path to data dir in test step (make as config)
 
 class BGRLLitModule(LightningModule):
     """
