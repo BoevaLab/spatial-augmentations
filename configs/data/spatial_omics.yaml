@@ -6,6 +6,7 @@ num_workers: 0
 pin_memory: False
 min_cells: 3
 min_genes: 3
+n_pca_components: 50
 graph_method: "knn"
 n_neighbors: 10
 redo_preprocess: False
