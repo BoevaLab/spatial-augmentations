@@ -166,7 +166,7 @@ def create_graph(adata, sample_name, method, n_neighbors):
     - For "pairwise":
         - Constructs a fully connected graph where edge weights are computed using a Gaussian kernel:
           `weight = exp(-distance^2 / (2 * l^2))`.
-        - The `edge_attr` attribute contains the computed edge weights.
+        - The `edge_weight` attribute contains the computed edge weights.
     - The `x` attribute in the returned graph corresponds to the PCA-transformed features stored in `adata.obsm["X_pca"]`.
     - The adjacency matrix is stored in `adata.obsm['adj']` for both methods.
     """
@@ -223,12 +223,12 @@ def create_graph(adata, sample_name, method, n_neighbors):
         # convert adjacency matrix to COO format for edge index and edge attributes
         edge_index = np.array(np.nonzero(adj))
         edge_index = torch.tensor(edge_index, dtype=torch.long)
-        edge_attr = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float)
+        edge_weight = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float)
 
         return Data(
             x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index, 
-            edge_attr=edge_attr,
+            edge_weight=edge_weight,
             sample_name=sample_name
         )
         
