@@ -6,6 +6,9 @@ num_workers: 0
 pin_memory: False
 min_cells: 3
 min_genes: 3
+augmentation_mode: "baseline"
+lambda_param: 0.1
+sigma_param: 0.1
 n_pca_components: 50
 graph_method: "knn"
 n_neighbors: 21.75

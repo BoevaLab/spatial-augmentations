@@ -55,24 +55,8 @@ class SpatialOmicsDataModule(LightningDataModule):
 
     Attributes:
     -----------
-    data_dir : str
-        Directory containing raw spatial omics data files.
-    processed_dir : str
-        Directory to save/load preprocessed graphs.
     batch_size_per_device : int
         Batch size for dataloaders.
-    num_workers : int
-        Number of workers for data loading.
-    pin_memory : bool
-        Whether to pin memory for DataLoader.
-    min_cells : int
-        Minimum number of cells required for preprocessing.
-    min_genes : int
-        Minimum number of genes required for preprocessing.
-    graph_method : str
-        Method for graph construction ("knn" or "pairwise").
-    n_neighbors : int
-        Number of neighbors for k-NN graph construction.
     graphs : list
         List of graph objects created from the dataset.
     dataset : SpatialOmicsDataset
@@ -88,6 +72,9 @@ class SpatialOmicsDataModule(LightningDataModule):
         pin_memory: bool = False,
         min_cells: int = 3,
         min_genes: int = 3,
+        augmentation_mode: str = "baseline",
+        lambda_param: float = 0.1,
+        sigma_param: float = 0.1,
         n_pca_components = 50,
         graph_method: str = "knn",
         n_neighbors: int = 10,
@@ -112,10 +99,20 @@ class SpatialOmicsDataModule(LightningDataModule):
             Minimum number of cells required for preprocessing. Default is 3.
         min_genes : int, optional
             Minimum number of genes required for preprocessing. Default is 3.
+        augmentation_mode : str, optional
+            Augmentation mode for preprocessing. Default is "baseline".
+        lambda_param : float, optional
+            Lambda parameter for pseudo batch effect. Default is 0.1.
+        sigma_param : float, optional
+            Sigma parameter for pseudo batch effect. Default is 0.1.
+        n_pca_components : int, optional
+            Number of PCA components for dimensionality reduction. Default is 50.
         graph_method : str, optional
             Method for graph construction ("knn" or "pairwise"). Default is "knn".
         n_neighbors : int, optional
             Number of neighbors for k-NN graph construction. Default is 10.
+        redo_preprocess : bool, optional
+            Whether to redo preprocessing even if preprocessed data exists. Default is False.
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -190,7 +187,15 @@ class SpatialOmicsDataModule(LightningDataModule):
                     if "X_pca" in adata.obsm:
                         log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
                     else:
-                        preprocess_sample(adata, min_cells=self.hparams.min_cells, min_genes=self.hparams.min_genes, n_pca_components=self.hparams.n_pca_components)
+                        preprocess_sample(
+                            adata, 
+                            min_cells=self.hparams.min_cells, 
+                            min_genes=self.hparams.min_genes, 
+                            n_pca_components=self.hparams.n_pca_components, 
+                            augmentation_mode=self.hparams.augmentation_mode,
+                            lambda_param=self.hparams.lambda_param,
+                            sigma_param=self.hparams.sigma_param,
+                        )
                     graph = create_graph(adata, sample_name=sample_name, method=self.hparams.graph_method, n_neighbors=self.hparams.n_neighbors)
                     self.graphs.append(graph)
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)

@@ -45,7 +45,8 @@ class BGRLLitModule(LightningModule):
         drop_edge_p1: float = 0.1,
         drop_edge_p2: float = 0.1,
         drop_feat_p1: float = 0.1,
-        drop_feat_p2: float = 0.1
+        drop_feat_p2: float = 0.1,
+        processed_dir: str = "data/domain/processed/",
     ) -> None:
         """
         Initialize the BGRLLitModule.
@@ -224,7 +225,7 @@ class BGRLLitModule(LightningModule):
 
         # load adata object
         sample_name = batch.sample_name[0]
-        file_path = os.path.join("data/domain/processed/", sample_name + ".h5ad")
+        file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
         adata = sc.read_h5ad(file_path)
 
         # append cell embeddings to adata object
