@@ -16,6 +16,7 @@ Functions:
 - get_graph_augmentation: Creates a composed graph augmentation pipeline based on the specified method and parameters.
 """
 
+import numpy as np
 import torch
 from torch_geometric.utils import dropout_edge
 from copy import deepcopy
@@ -151,6 +152,53 @@ class DropEdges:
         """
         return '{}(p={}, force_undirected={})'.format(self.__class__.__name__, self.p, self.force_undirected)
 
+class PseudoBatchEffect:
+    def __init__(self, lambda_param: float, sigma: float):
+        """
+        Initializes the PseudoBatchEffect transformation.
+
+        Parameters:
+        -----------
+        lambda_param : float
+            The rate parameter for the exponential distribution.
+        sigma : float
+            The standard deviation for the normal distribution.
+        """
+        self.lambda_param = lambda_param
+        self.sigma = sigma
+
+    def __call__(self, data):
+        """
+        Applies the pseudo batch effect transformation to the gene expression matrix.
+
+        Parameters:
+        -----------
+        data : torch_geometric.data.Data
+            The graph data object containing the gene expression matrix `x`.
+
+        Returns:
+        --------
+        data : torch_geometric.data.Data
+            The transformed graph data object with updated `x`.
+        """
+        # gene expression matrix
+        x = data.x
+
+        # number of genes
+        P = x.shape[1]
+
+        # generate random vectors (following exponential and normal distributions)
+        a = torch.from_numpy(np.random.exponential(scale=1 / self.lambda_param, size=P)).float()
+        s = torch.from_numpy(np.random.normal(loc=0, scale=self.sigma, size=P)).float()
+
+        # apply the pseudo batch effect transformation
+        x_augmented = a + x * (1 + s)
+
+        # update the gene expression matrix in the data object
+        data.x = x_augmented
+
+        return data
+
     def __repr__(self):
         """
         Returns a string representation of the transformation.
@@ -160,7 +208,8 @@ class DropEdges:
         str
             A string describing the transformation and its parameters.
         """
-        return '{}(p={}, force_undirected={})'.format(self.__class__.__name__, self.p, self.force_undirected)
+        return f"{self.__class__.__name__}(lambda_param={self.lambda_param}, sigma={self.sigma})"
+
 
 
 def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
@@ -202,6 +251,8 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
         # drop features
         if drop_feat_p > 0.:
             transforms.append(DropFeatures(drop_feat_p))
+
+        # return the composed transformation
         return Compose(transforms)
     
     elif augmentation_method == 'advanced':
@@ -217,6 +268,11 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
         # drop features
         if drop_feat_p > 0.:
             transforms.append(DropFeatures(drop_feat_p))
+
+        # pseudo batch effect
+        transforms.append(PseudoBatchEffect(lambda_param=0.1, sigma=0.1))
+
+        # return the composed transformation
         return Compose(transforms)
     
     else:
