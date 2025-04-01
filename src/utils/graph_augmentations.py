@@ -211,8 +211,94 @@ class PseudoBatchEffect:
         return f"{self.__class__.__name__}(lambda_param={self.lambda_param}, sigma={self.sigma})"
 
 
+class DropImportance:
+    """
+    Drops node features and edges based on their importance.
 
-def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
+    Node importance is derived from the logarithm of degree centrality, normalized, and used to define
+    the sampling probability for masking node features. Edge importance is calculated as the mean of
+    the importance of the two nodes connected by the edge, normalized, and used to define the sampling
+    probability for dropping edges.
+
+    Parameters:
+    -----------
+    mu : float
+        A hyperparameter that controls the overall proportion of masking nodes and edges.
+    p_lambda : float
+        A threshold value to prevent masking nodes or edges with high importance. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature and edge dropout transformations based on importance to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+    """
+
+    def __init__(self, mu, p_lambda):
+        assert 0. < p_lambda <= 1., 'p_lambda must be between 0 and 1, but got %.2f' % p_lambda
+        self.mu = mu
+        self.p_lambda = p_lambda
+
+    def __call__(self, data):
+        """
+        Applies the feature and edge dropout transformations based on importance to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node features and edge information.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with some features and edges dropped based on importance.
+        """
+        # calculate degree centrality for each node
+        degree = torch.bincount(data.edge_index[0], minlength=data.num_nodes).float()
+        log_degree = torch.log(degree + 1)
+
+        # normalize the log degree centrality
+        max_log_degree = log_degree.max()
+        avg_log_degree = log_degree.mean()
+        node_importance = (log_degree - avg_log_degree) / (max_log_degree - avg_log_degree + 1e-8)  # avoid division by zero
+        node_importance = torch.clamp(node_importance, min=0)  # ensure non-negative importance
+
+        # define node sampling probability and create dropout mask
+        node_sampling_prob = torch.min((1 - node_importance) * self.mu, torch.tensor(self.p_lambda, device=node_importance.device))
+        node_drop_mask = torch.rand_like(data.x[:, 0]) < node_sampling_prob
+        data.x[node_drop_mask] = 0
+
+        # calculate edge importance as the mean of the importance of the two connected nodes
+        edge_importance = (node_importance[data.edge_index[0]] + node_importance[data.edge_index[1]]) / 2
+
+        # normalize edge importance
+        max_edge_importance = edge_importance.max()
+        avg_edge_importance = edge_importance.mean()
+        edge_importance = (edge_importance - avg_edge_importance) / (max_edge_importance - avg_edge_importance + 1e-8)
+        edge_importance = torch.clamp(edge_importance, min=0)  # Ensure non-negative importance
+
+        # dfine edge sampling probability and create dropout mask
+        edge_sampling_prob = torch.min((1 - edge_importance) * self.mu, torch.tensor(self.p_lambda, device=edge_importance.device))
+        edge_drop_mask = torch.rand_like(edge_sampling_prob) < edge_sampling_prob
+        data.edge_index = data.edge_index[:, edge_drop_mask]
+        data.edge_weight = data.edge_weight[edge_drop_mask]
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return '{}(mu={}, p_lambda={})'.format(self.__class__.__name__, self.mu, self.p_lambda)
+
+
+def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_lambda):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
 
@@ -221,12 +307,16 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
 
     Parameters:
     -----------
-    augmentation_method : str
-        The augmentation method to use. Currently, only 'baseline' is supported.
+    augmentation_mode : str
+        The augmentation mode to use. Currently, only 'baseline' is supported.
     drop_edge_p : float
         The probability of dropping an edge. Must be between 0 and 1.
     drop_feat_p : float
         The probability of dropping a node feature. Must be between 0 and 1.
+    mu : float
+        A hyperparameter that controls the overall proportion of masking nodes and edges.
+    p_lambda : float
+        A threshold value to prevent masking nodes or edges with high importance. Must be between 0 and 1.
 
     Returns:
     --------
@@ -238,7 +328,7 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
     ValueError
         If an unknown augmentation method is specified.
     """
-    if augmentation_method == 'baseline':
+    if augmentation_mode == 'baseline':
         transforms = list()
 
         # make copy of graph
@@ -255,25 +345,17 @@ def get_graph_augmentation(augmentation_method, drop_edge_p, drop_feat_p):
         # return the composed transformation
         return Compose(transforms)
     
-    elif augmentation_method == 'advanced':
+    elif augmentation_mode == 'advanced':
         transforms = list()
 
         # make copy of graph
         transforms.append(deepcopy)
 
-        # drop edges
-        if drop_edge_p > 0.:
-            transforms.append(DropEdges(drop_edge_p))
-
-        # drop features
-        if drop_feat_p > 0.:
-            transforms.append(DropFeatures(drop_feat_p))
-
-        # pseudo batch effect
-        transforms.append(PseudoBatchEffect(lambda_param=0.1, sigma=0.1))
+        # drop importance
+        transforms.append(DropImportance(mu, p_lambda))
 
         # return the composed transformation
         return Compose(transforms)
     
     else:
-        raise ValueError('Unknown augmentation method: {}'.format(augmentation_method))
+        raise ValueError('Unknown augmentation method: {}'.format(augmentation_mode))
