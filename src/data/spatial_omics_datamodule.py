@@ -31,6 +31,7 @@ import os
 import torch
 from lightning import LightningDataModule
 from torch_geometric.loader import DataLoader
+from torch.utils.data import random_split
 
 from src.utils.preprocess_helpers import (
     read_samples_into_dict, 
@@ -196,7 +197,11 @@ class SpatialOmicsDataModule(LightningDataModule):
                             lambda_param=self.hparams.lambda_param,
                             sigma_param=self.hparams.sigma_param,
                         )
-                    graph = create_graph(adata, sample_name=sample_name, method=self.hparams.graph_method, n_neighbors=self.hparams.n_neighbors)
+                    graph = create_graph(adata, 
+                                         sample_name=sample_name, 
+                                         method=self.hparams.graph_method, 
+                                         n_neighbors=self.hparams.n_neighbors
+                            )
                     self.graphs.append(graph)
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
@@ -204,6 +209,32 @@ class SpatialOmicsDataModule(LightningDataModule):
                 self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples.keys(), self.graphs)})
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
+
+        self.train_dataset = self.dataset
+        self.val_dataset = self.dataset
+        self.test_dataset = self.dataset
+        """
+        # !!!! add validation !!!!
+        # Split the dataset into training and testing subsets
+        # Group samples by class
+        merfish_samples = [graph for graph in self.graphs if graph.sample_name.startswith("MERFISH")]
+        baristaseq_samples = [graph for graph in self.graphs if graph.sample_name.startswith("BaristaSeq")]
+        starmap_samples = [graph for graph in self.graphs if graph.sample_name.startswith("STARmap")]
+
+        # Hold out one sample from each class for testing
+        test_samples = [
+            merfish_samples.pop(1),  # Hold out MERFISH sample
+            baristaseq_samples.pop(0),  # Hold out BaristaSeq sample
+            starmap_samples.pop(0),  # Hold out STARmap sample
+        ]
+
+        # Combine the remaining samples for training
+        train_samples = merfish_samples + baristaseq_samples + starmap_samples
+
+        # Create train and test datasets
+        self.train_dataset = SpatialOmicsDataset({graph.sample_name: graph for graph in train_samples})
+        self.test_dataset = SpatialOmicsDataset({graph.sample_name: graph for graph in test_samples})
+        """
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -215,7 +246,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the training dataset.
         """
         return DataLoader(
-            dataset=self.dataset,
+            dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
@@ -232,7 +263,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the validation dataset.
         """
         return DataLoader(
-            dataset=self.dataset,
+            dataset=self.val_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
@@ -249,7 +280,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the test dataset.
         """
         return DataLoader(
-            dataset=self.dataset,
+            dataset=self.test_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
