@@ -38,6 +38,7 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+import os
 import csv
 from sklearn.model_selection import LeaveOneOut
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
@@ -173,13 +174,13 @@ def main(cfg: DictConfig) -> Optional[float]:
     )
 
     # save the aggregated metrics to a CSV file
-    output_csv_path = cfg.get("output_dir")
+    output_csv_path = os.path.join(cfg.paths.output_dir, "aggregated_metrics.csv")
     with open(output_csv_path, mode="w", newline="") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(["Metric", "Value"])
         for key, value in metric_dict.items():
             writer.writerow([key, value])
-    log.info(f"Aggregated metrics saved to {output_csv_path} !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    log.info(f"Aggregated metrics saved to {output_csv_path}.")
 
     # return optimized metric
     return metric_value
