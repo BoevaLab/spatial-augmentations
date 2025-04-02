@@ -244,6 +244,8 @@ class BGRLLitModule(LightningModule):
             domain_name = "region"
         elif sample_name.startswith("BaristaSeq"):
             domain_name = "layer"
+        elif sample_name.startswith("Zhuang"):
+            domain_name = "parcellation_structure"
         ground_truth_labels = adata.obs[domain_name]
 
         # determine resolution based on number of ground truth labels
