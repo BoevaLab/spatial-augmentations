@@ -28,12 +28,14 @@ scheduler:
   patience: 10
 
 
-compile: false              # compile model for faster training with pytorch 2.0
-augmentation: 'baseline'    # augmetation strategy, either baseline or advanced
-mm: 0.92                    # momentum for moving average of target encoder
-drop_edge_p1: 0.1           # drop edge probability for first augmentation
-drop_edge_p2: 0.1           # drop edge probability for second augmentation
-drop_feat_p1: 0.1           # drop feature probability for first augmentation
-drop_feat_p2: 0.1           # drop feature probability for second augmentation
-#warmup_steps: 1000          # number of warmup steps for learning rate scheduler
+compile: false                                          # compile model for faster training with pytorch 2.0
+augmentation_mode: 'baseline'                           # augmetation mode, either baseline or advanced
+mm: 0.92                                                # momentum for moving average of target encoder
+drop_edge_p1: 0.1                                       # drop edge probability for first augmentation
+drop_edge_p2: 0.1                                       # drop edge probability for second augmentation
+drop_feat_p1: 0.1                                       # drop feature probability for first augmentation
+drop_feat_p2: 0.1                                       # drop feature probability for second augmentation
+mu: 0.5                                                 # hyperparameter for the graph augmentation
+p_lambda: 0.7                                           # hyperparameter for the graph augmentation
+processed_dir: ${paths.data_dir}/domain/processed/      # directory for processed data
 

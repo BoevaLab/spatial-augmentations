@@ -40,12 +40,15 @@ class BGRLLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        augmentation: str = "baseline",
+        augmentation_mode: str = "baseline",
         mm: int = 0.99,
         drop_edge_p1: float = 0.1,
         drop_edge_p2: float = 0.1,
         drop_feat_p1: float = 0.1,
-        drop_feat_p2: float = 0.1
+        drop_feat_p2: float = 0.1,
+        mu: float = 0.2,
+        p_lambda: float = 0.5,
+        processed_dir: str = "data/domain/processed/",
     ) -> None:
         """
         Initialize the BGRLLitModule.
@@ -60,8 +63,8 @@ class BGRLLitModule(LightningModule):
             The learning rate scheduler to use for training.
         compile : bool
             Whether to use Torch's `torch.compile` for model compilation.
-        augmentation_method : str, optional
-            The graph augmentation method to use. Default is "baseline".
+        augmentation_mode : str, optional
+            The graph augmentation mode to use. Default is "baseline".
         mm : float, optional
             Momentum for the target network updates. Default is 0.99.
         drop_edge_p1 : float, optional
@@ -72,8 +75,10 @@ class BGRLLitModule(LightningModule):
             Dropout probability for features in the first view. Default is 0.0.
         drop_feat_p2 : float, optional
             Dropout probability for features in the second view. Default is 0.0.
-        warmup_steps : int, optional
-            Number of warmup steps for the learning rate scheduler. Default is 1000.
+        mu : float, optional
+            The parameter for the graph augmentation. Default is 0.2.
+        p_lambda : float, optional
+            The parameter for the graph augmentation. Default is 0.5.
         num_iterations : int, optional
             Total number of training iterations. Default is 1e5.
         """
@@ -82,7 +87,7 @@ class BGRLLitModule(LightningModule):
 
         # initialize the BGRL model
         self.net = net
-        self.augmentation = augmentation
+        self.augmentation_mode = augmentation_mode
 
         # loss function
         self.criterion = self.cosine_similarity_loss
@@ -181,8 +186,8 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The training loss for the batch.
         """
-        transform1 = get_graph_augmentation(self.augmentation, self.drop_edge_p1, self.drop_feat_p1)
-        transform2 = get_graph_augmentation(self.augmentation, self.drop_edge_p2, self.drop_feat_p2)
+        transform1 = get_graph_augmentation(self.augmentation_mode, self.drop_edge_p1, self.drop_feat_p1, self.hparams.mu, self.hparams.p_lambda)
+        transform2 = get_graph_augmentation(self.augmentation_mode, self.drop_edge_p2, self.drop_feat_p2, self.hparams.mu, self.hparams.p_lambda)
 
         augmented1 = transform1(batch)
         augmented2 = transform2(batch)
@@ -224,7 +229,7 @@ class BGRLLitModule(LightningModule):
 
         # load adata object
         sample_name = batch.sample_name[0]
-        file_path = os.path.join("data/domain/processed/", sample_name + ".h5ad")
+        file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
         adata = sc.read_h5ad(file_path)
 
         # append cell embeddings to adata object
@@ -239,6 +244,8 @@ class BGRLLitModule(LightningModule):
             domain_name = "region"
         elif sample_name.startswith("BaristaSeq"):
             domain_name = "layer"
+        elif sample_name.startswith("Zhuang"):
+            domain_name = "parcellation_structure"
         ground_truth_labels = adata.obs[domain_name]
 
         # determine resolution based on number of ground truth labels

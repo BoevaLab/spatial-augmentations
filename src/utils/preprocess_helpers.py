@@ -81,9 +81,10 @@ def save_sample(adata, graph, output_dir, sample_name):
     torch.save(graph, graph_file)
     log.info(f"Saved graph to {graph_file}")
 
-def preprocess_sample(adata, min_cells, min_genes, n_pca_components=50):
+def preprocess_sample(adata, min_cells, min_genes, n_pca_components=50, augmentation_mode = "baseline", lambda_param=0.1, sigma_param=0.1):
     """
-    Preprocesses a single AnnData object by applying filtering, normalization, and dimensionality reduction steps.
+    Preprocesses a single AnnData object by applying filtering, normalization, optional pseudo batch effect augmentation, 
+    and dimensionality reduction steps.
 
     Parameters:
     ----------
@@ -95,21 +96,59 @@ def preprocess_sample(adata, min_cells, min_genes, n_pca_components=50):
         The minimum number of genes that must be expressed in a cell to retain the cell.
     n_pca_components : int, optional
         The number of PCA components to retain during dimensionality reduction. Default is 50.
+    augmentation_mode : str, optional
+        The augmentation mode to apply. Options are:
+        - "baseline": No augmentation is applied.
+        - "pseudo_batch_effect": Applies a pseudo batch effect to simulate batch variability. Default is "baseline".
+    lambda_param : float, optional
+        The rate parameter for the exponential distribution used in the pseudo batch effect. Default is 0.1.
+    sigma_param : float, optional
+        The standard deviation for the normal distribution used in the pseudo batch effect. Default is 0.1.
 
     Returns:
     -------
     None
         The function modifies the input AnnData object in place.
+
+    Notes:
+    -----
+    - The preprocessing steps include:
+        1. Filtering genes and cells based on the specified thresholds.
+        2. Normalizing, log-transforming, and scaling the gene expression matrix.
+        3. Optionally applying the pseudo batch effect if `augmentation_mode` is set to "pseudo_batch_effect".
+        4. Performing PCA to reduce the dimensionality of the data.
+    - The pseudo batch effect modifies the gene expression matrix `X` as:
+        `X_augmented = a + X * (1 + s)`, where:
+        - `a` is sampled from an exponential distribution with rate `lambda_param`.
+        - `s` is sampled from a normal distribution with mean 0 and standard deviation `sigma_param`.
     """
     total_genes = adata.n_vars
     min_genes_dynamic = max(min_genes, int(total_genes * 0.01))
 
+    # step 1: filter genes and cells
     sc.pp.filter_genes(adata, min_cells=min_cells)              # filter genes expressed in less than min_cells cells
     sc.pp.filter_cells(adata, min_genes=min_genes_dynamic)      # filter cells with less than min_genes genes expressed
+
+    # step 2: normalize, scale, and log transform
     sc.pp.normalize_total(adata, target_sum=1e5)                # normalize gene expression values with a target sum per cell of 1e5
     sc.pp.log1p(adata)                                          # log transform gene expression values (log1p(x) = log(x+1))
     sc.pp.scale(adata)                                          # scale gene expression values to unit variance and zero mean
-    sc.pp.pca(adata, n_comps=n_pca_components)                  # perform PCA with n_pca_components components
+
+    # step 3: add pseudo batch effect if in advanced augmentation mode
+    if augmentation_mode == "pseudo_batch_effect":
+        X = adata.X     # gene expression matrix
+        P = X.shape[1]  # number of genes
+
+        # generate random vectors (following exponential and normal distributions)
+        a = np.random.exponential(scale=1 / lambda_param, size=P).astype(np.float32)
+        s = np.random.normal(loc=0, scale=sigma_param, size=P).astype(np.float32)
+
+        # apply the pseudo batch effect transformation
+        X_augmented = a + X * (1 + s)
+        adata.X = X_augmented
+
+    # step 4. perform PCA with n_pca_components components
+    sc.pp.pca(adata, n_comps=n_pca_components)
 
 def euclid_dist(t1, t2):
     """
