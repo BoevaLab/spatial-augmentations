@@ -1,6 +1,6 @@
 _target_: src.data.spatial_omics_datamodule.SpatialOmicsDataModule
-data_dir: ${paths.data_dir}/domain/raw/
-processed_dir: ${paths.data_dir}/domain/processed/
+data_dir: ${paths.data_dir}domain/raw/
+processed_dir: ${paths.data_dir}domain/processed/
 batch_size: 1
 num_workers: 0
 pin_memory: False

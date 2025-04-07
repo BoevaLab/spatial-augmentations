@@ -120,7 +120,6 @@ class SpatialOmicsDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
         self.batch_size_per_device = batch_size
 
-        self.graphs = None
         self.dataset = None
 
         # ensure the processed directory exists
@@ -167,7 +166,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # load and process datasets only if not loaded already
-        if not self.graphs and not self.dataset:
+        if not self.dataset:
             processed_file = os.path.join(self.hparams.processed_dir, "dataset.pt")
 
             if os.path.exists(processed_file) and not self.hparams.redo_preprocess:
@@ -182,7 +181,6 @@ class SpatialOmicsDataModule(LightningDataModule):
                 file_paths = [os.path.join(self.hparams.data_dir, f) for f in os.listdir(self.hparams.data_dir) if f.endswith(".h5ad")]
 
                 # preprocess samples and create graphs
-                self.graphs = []
                 samples = []
                 for file_path in file_paths:
                     adata = sc.read_h5ad(file_path)
@@ -206,12 +204,10 @@ class SpatialOmicsDataModule(LightningDataModule):
                                          method=self.hparams.graph_method, 
                                          n_neighbors=self.hparams.n_neighbors
                             )
-                    self.graphs.append(graph)
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
                 # save preprocessed graphs
-                self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples, self.graphs)})
-                torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
+                self.dataset = SpatialOmicsDataset(samples, self.hparams.processed_dir)
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
         # use this "split" for loocv and training / testing without split

@@ -291,7 +291,7 @@ class SpatialOmicsDataset(Dataset):
     get(idx: int) -> Data
         Returns the sample at the specified index.
     """
-    def __init__(self, samples: dict):
+    def __init__(self, samples: list, graph_dir: str):
         """
         Initializes the SpatialOmicsDataset.
 
@@ -301,7 +301,8 @@ class SpatialOmicsDataset(Dataset):
             A dictionary where the keys are sample names and the values are PyTorch Geometric Data objects.
         """
         super().__init__()
-        self.samples = list(samples.values())
+        self.samples = samples
+        self.graph_dir = graph_dir
 
     def len(self) -> int:
         """
@@ -328,4 +329,7 @@ class SpatialOmicsDataset(Dataset):
         torch_geometric.data.Data
             The PyTorch Geometric Data object at the specified index.
         """
-        return self.samples[idx]
+        sample_name = self.samples[idx]
+        graph_path = os.path.join(self.graph_dir, f"{sample_name}_graph.pt")
+        graph = torch.load(graph_path, weights_only=False)
+        return graph
