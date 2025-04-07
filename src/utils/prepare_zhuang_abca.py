@@ -108,8 +108,7 @@ def prepare_zhuang_abca(datasets, abc_cache, output_dir):
 
 
 def main():
-    #datasets = ['Zhuang-ABCA-1', 'Zhuang-ABCA-2', 'Zhuang-ABCA-3', 'Zhuang-ABCA-4']
-    datasets = ['Zhuang-ABCA-2', 'Zhuang-ABCA-3', 'Zhuang-ABCA-4']
+    datasets = ['Zhuang-ABCA-1', 'Zhuang-ABCA-2', 'Zhuang-ABCA-3', 'Zhuang-ABCA-4']
     download_base = Path('data/domain/abc_atlas/')
     abc_cache = AbcProjectCache.from_cache_dir(download_base)
     output_dir = "data/domain/raw/"

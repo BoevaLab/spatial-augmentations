@@ -5,7 +5,7 @@ import os
 import csv
 from lightning import LightningModule
 from torchmetrics import MeanMetric
-from torchmetrics.clustering import NormalizedMutualInfoScore, AdjustedRandScore
+from torchmetrics.clustering import NormalizedMutualInfoScore, AdjustedRandScore, HomogeneityScore, CompletenessScore
 from torch.nn.functional import cosine_similarity
 from src.utils.graph_augmentations import get_graph_augmentation
 from src.utils.schedulers import CosineDecayScheduler
@@ -107,6 +107,8 @@ class BGRLLitModule(LightningModule):
         # test metrics (only calculated during testing)
         self.test_nmi = NormalizedMutualInfoScore()
         self.test_ars = AdjustedRandScore()
+        self.test_homogeneity = HomogeneityScore()
+        self.test_completeness = CompletenessScore()
         self.test_outputs = []
 
     def forward(
@@ -186,8 +188,20 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The training loss for the batch.
         """
-        transform1 = get_graph_augmentation(self.augmentation_mode, self.drop_edge_p1, self.drop_feat_p1, self.hparams.mu, self.hparams.p_lambda)
-        transform2 = get_graph_augmentation(self.augmentation_mode, self.drop_edge_p2, self.drop_feat_p2, self.hparams.mu, self.hparams.p_lambda)
+        transform1 = get_graph_augmentation(
+            self.augmentation_mode,
+            self.drop_edge_p1, 
+            self.drop_feat_p1, 
+            self.hparams.mu, 
+            self.hparams.p_lambda
+        )
+        transform2 = get_graph_augmentation(
+            self.augmentation_mode,
+            self.drop_edge_p2, 
+            self.drop_feat_p2, 
+            self.hparams.mu, 
+            self.hparams.p_lambda
+        )
 
         augmented1 = transform1(batch)
         augmented2 = transform2(batch)
@@ -264,14 +278,29 @@ class BGRLLitModule(LightningModule):
         # calculate metrics
         nmi = self.test_nmi(ground_truth_labels, leiden_labels)
         ari = self.test_ars(ground_truth_labels, leiden_labels)
+        homogeneity = self.test_homogeneity(ground_truth_labels, leiden_labels)
+        completeness = self.test_completeness(ground_truth_labels, leiden_labels)
 
         # log metrics for each graph
         self.log("test/batch_idx", batch_idx, on_step=True, on_epoch=False, prog_bar=False)
         self.log("test/nmi", nmi, on_step=True, on_epoch=False, prog_bar=False)
         self.log("test/ari", ari, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("test/homogeneity", homogeneity, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("test/completeness", completeness, on_step=True, on_epoch=False, prog_bar=False)
 
         # save metrics for aggregation
-        self.test_outputs.append({"sample_name": sample_name, "nmi": nmi, "ari": ari})
+        self.test_outputs.append({
+            "sample_name": sample_name, 
+            "nmi": nmi, 
+            "ari": ari, 
+            "homogeneity": homogeneity, 
+            "completeness": completeness
+        })
+
+        # save the updated adata file to the logs directory
+        #save_dir = os.path.join(self.logger.save_dir, "adata_files")
+        #os.makedirs(save_dir, exist_ok=True)
+        #adata.write_h5ad(os.path.join(save_dir, f"{sample_name}.h5ad"), compression="gzip")
 
     def on_test_epoch_end(self) -> None:
         """
@@ -285,21 +314,27 @@ class BGRLLitModule(LightningModule):
         # save graph-level metrics to a CSV file
         file_path = os.path.join(save_dir, "test_results.csv")
         with open(file_path, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["sample_name", "nmi", "ari"])
+            writer = csv.DictWriter(file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"])
             writer.writeheader()
             writer.writerows(self.test_outputs)
 
         # extract all NMI and ARI scores
         nmi_scores = torch.stack([x["nmi"] for x in self.test_outputs])
         ari_scores = torch.stack([x["ari"] for x in self.test_outputs])
+        homogeneity_scores = torch.stack([x["homogeneity"] for x in self.test_outputs])
+        completeness_scores = torch.stack([x["completeness"] for x in self.test_outputs])
 
         # compute mean scores
         mean_nmi = nmi_scores.mean()
         mean_ari = ari_scores.mean()
+        mean_homogeneity = homogeneity_scores.mean()
+        mean_completeness = completeness_scores.mean()
 
         # log the mean scores
         self.log("test/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
         self.log("test/ari_mean", mean_ari, on_epoch=True, prog_bar=True)
+        self.log("test/homogeneity_mean", mean_homogeneity, on_epoch=True, prog_bar=True)
+        self.log("test/completeness_mean", mean_completeness, on_epoch=True, prog_bar=True)
 
         # clear the outputs for the next test run
         self.test_outputs.clear()
