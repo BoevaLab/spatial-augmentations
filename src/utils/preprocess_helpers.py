@@ -1,9 +1,31 @@
+"""
+Utility functions and classes for preprocessing spatial omics data.
+
+This module provides helper functions and classes to preprocess spatial omics data, 
+including reading and saving AnnData objects, applying preprocessing steps, constructing 
+graph representations, and managing datasets for PyTorch Geometric models.
+
+Functions:
+----------
+- read_samples_into_dict: Reads multiple AnnData objects into a dictionary.
+- save_sample: Saves an AnnData object and its corresponding graph to disk.
+- preprocess_sample: Applies preprocessing steps to an AnnData object, including filtering, 
+  normalization, augmentation, and dimensionality reduction.
+- euclid_dist: Computes the Euclidean distance between two vectors.
+- create_graph: Constructs a graph representation of spatial data from an AnnData object.
+
+Classes:
+--------
+- SpatialOmicsDataset: A custom PyTorch Geometric dataset for managing spatial omics data.
+"""
+
+
 import os
 import scanpy as sc
 import numpy as np
 import torch
 from torch_geometric.data import Data, Dataset
-from scipy.spatial import distance_matrix, cKDTree
+from scipy.spatial import cKDTree
 import rootutils
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -13,7 +35,7 @@ from src.utils import RankedLogger
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-def read_samples_into_dict(file_paths):
+def read_samples_into_dict(file_paths) -> dict:
     """
     Reads multiple AnnData objects (samples) from a list of file paths and stores them in a dictionary.
 
@@ -37,7 +59,12 @@ def read_samples_into_dict(file_paths):
         
     return adata_dict
 
-def save_sample(adata, graph, output_dir, sample_name):
+def save_sample(
+    adata: sc.AnnData, 
+    graph: Data, 
+    output_dir: str, 
+    sample_name: str
+) -> None:
     """
     Saves the AnnData object and PyTorch Geometric graph for a sample.
 
@@ -81,7 +108,15 @@ def save_sample(adata, graph, output_dir, sample_name):
     torch.save(graph, graph_file)
     log.info(f"Saved graph to {graph_file}")
 
-def preprocess_sample(adata, min_cells, min_genes, n_pca_components=50, augmentation_mode = "baseline", lambda_param=0.1, sigma_param=0.1):
+def preprocess_sample(
+    adata: sc.AnnData, 
+    min_cells: int, 
+    min_genes: int, 
+    n_pca_components: int, 
+    augmentation_mode: str, 
+    lambda_param: float, 
+    sigma_param: float
+) -> None:
     """
     Preprocesses a single AnnData object by applying filtering, normalization, optional pseudo batch effect augmentation, 
     and dimensionality reduction steps.
@@ -150,7 +185,7 @@ def preprocess_sample(adata, min_cells, min_genes, n_pca_components=50, augmenta
     # step 4. perform PCA with n_pca_components components
     sc.pp.pca(adata, n_comps=n_pca_components)
 
-def euclid_dist(t1, t2):
+def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:
     """
     Computes the Euclidean distance between two vectors.
 
@@ -168,7 +203,12 @@ def euclid_dist(t1, t2):
     """
     return np.linalg.norm(t1 - t2)
 
-def create_graph(adata, sample_name, method, n_neighbors):
+def create_graph(
+    adata: sc.AnnData, 
+    sample_name: str, 
+    method: str, 
+    n_neighbors: int
+) -> Data:
     """
     Creates a graph representation of spatial data from an AnnData object.
 
@@ -279,13 +319,17 @@ class SpatialOmicsDataset(Dataset):
     """
     A custom PyTorch Geometric dataset for spatial omics data.
 
+    This dataset manages spatial omics data represented as PyTorch Geometric Data objects.
+
     Attributes:
-    ----------
+    -----------
     samples : list
-        A list of PyTorch Geometric Data objects representing the dataset.
+        A list of sample names corresponding to the dataset.
+    graph_dir : str
+        Directory where the graph files are stored.
 
     Methods:
-    -------
+    --------
     len() -> int
         Returns the number of samples in the dataset.
     get(idx: int) -> Data
@@ -296,9 +340,11 @@ class SpatialOmicsDataset(Dataset):
         Initializes the SpatialOmicsDataset.
 
         Parameters:
-        ----------
-        samples : dict
-            A dictionary where the keys are sample names and the values are PyTorch Geometric Data objects.
+        -----------
+        samples : list
+            A list of sample names corresponding to the dataset.
+        graph_dir : str
+            Directory where the graph files are stored.
         """
         super().__init__()
         self.samples = samples
