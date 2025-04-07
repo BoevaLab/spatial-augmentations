@@ -31,6 +31,7 @@ import os
 import torch
 import scanpy as sc
 from lightning import LightningDataModule
+import psutil
 from torch_geometric.loader import DataLoader
 from torch.utils.data import random_split
 
@@ -210,6 +211,8 @@ class SpatialOmicsDataModule(LightningDataModule):
                 self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
+                log.info(f"CPU memory usage: {psutil.virtual_memory().percent}%")
+                log.info(f"GPU memory usage: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
 
         # use this "split" for loocv and training / testing without split
         self.train_dataset = self.dataset

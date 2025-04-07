@@ -4,7 +4,7 @@
 #SBATCH --output=output.txt
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
-#SBATCH --mem=16G
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=2:00:00
 
