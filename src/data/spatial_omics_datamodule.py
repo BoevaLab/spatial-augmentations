@@ -207,7 +207,8 @@ class SpatialOmicsDataModule(LightningDataModule):
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
                 # save preprocessed graphs
-                self.dataset = SpatialOmicsDataset(samples, self.hparams.processed_dir)
+                self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)
+                torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
         # use this "split" for loocv and training / testing without split
