@@ -29,6 +29,7 @@ Usage:
 from typing import Optional, Dict, Any
 import os
 import torch
+import scanpy as sc
 from lightning import LightningDataModule
 from torch_geometric.loader import DataLoader
 from torch.utils.data import random_split
@@ -178,13 +179,16 @@ class SpatialOmicsDataModule(LightningDataModule):
             else:
                 # preprocess data and save to disk
                 log.info(f"Preprocessing data from {self.hparams.data_dir} and saving to {self.hparams.processed_dir}.")
-                # read samples into dict
                 file_paths = [os.path.join(self.hparams.data_dir, f) for f in os.listdir(self.hparams.data_dir) if f.endswith(".h5ad")]
-                samples = read_samples_into_dict(file_paths)
 
                 # preprocess samples and create graphs
                 self.graphs = []
-                for sample_name, adata in samples.items():
+                samples = []
+                for file_path in file_paths:
+                    adata = sc.read_h5ad(file_path)
+                    sample_name = os.path.splitext(os.path.basename(file_path))[0]
+                    samples.append(sample_name)
+
                     if "X_pca" in adata.obsm:
                         log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
                     else:
@@ -206,7 +210,7 @@ class SpatialOmicsDataModule(LightningDataModule):
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
                 # save preprocessed graphs
-                self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples.keys(), self.graphs)})
+                self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples, self.graphs)})
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 

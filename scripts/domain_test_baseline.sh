@@ -11,7 +11,7 @@
 source ~/.bashrc
 conda activate augmentation
 
-python src/train.py tags="[baseline, test]" \
+srun python src/train.py tags="[baseline, test]" \
     ckpt_path=??? \
     data.batch_size=1 \
     data.num_workers=1 \

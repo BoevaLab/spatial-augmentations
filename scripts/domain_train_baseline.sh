@@ -11,7 +11,7 @@
 source ~/.bashrc
 conda activate augmentation
 
-python src/train.py tags="[baseline, train]" \
+srun python src/train.py tags="[baseline, train]" \
     data.batch_size=4 \
     data.num_workers=4 \
     trainer=gpu \
