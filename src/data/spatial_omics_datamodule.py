@@ -58,8 +58,6 @@ class SpatialOmicsDataModule(LightningDataModule):
     -----------
     batch_size_per_device : int
         Batch size for dataloaders, adjusted for distributed training.
-    graphs : list
-        List of graph objects created from the dataset.
     dataset : SpatialOmicsDataset
         Dataset object containing graphs and metadata.
     train_dataset : SpatialOmicsDataset
