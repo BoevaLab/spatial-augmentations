@@ -29,12 +29,12 @@ Usage:
 from typing import Optional, Dict, Any
 import os
 import torch
+import scanpy as sc
 from lightning import LightningDataModule
 from torch_geometric.loader import DataLoader
 from torch.utils.data import random_split
 
 from src.utils.preprocess_helpers import (
-    read_samples_into_dict, 
     preprocess_sample, 
     create_graph, 
     save_sample, 
@@ -57,11 +57,17 @@ class SpatialOmicsDataModule(LightningDataModule):
     Attributes:
     -----------
     batch_size_per_device : int
-        Batch size for dataloaders.
+        Batch size for dataloaders, adjusted for distributed training.
     graphs : list
         List of graph objects created from the dataset.
     dataset : SpatialOmicsDataset
         Dataset object containing graphs and metadata.
+    train_dataset : SpatialOmicsDataset
+        Dataset used for training.
+    val_dataset : SpatialOmicsDataset
+        Dataset used for validation.
+    test_dataset : SpatialOmicsDataset
+        Dataset used for testing.
     """
 
     def __init__(
@@ -85,7 +91,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         Initialize the SpatialOmicsDataModule.
 
         Parameters:
-        ----------
+        -----------
         data_dir : str, optional
             Directory containing raw spatial omics data files. Default is "data/domain/raw/".
         processed_dir : str, optional
@@ -117,10 +123,13 @@ class SpatialOmicsDataModule(LightningDataModule):
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
+
         self.batch_size_per_device = batch_size
 
-        self.graphs = None
         self.dataset = None
+        self.train_dataset = None
+        self.val_dataset = None
+        self.test_dataset = None
 
         # ensure the processed directory exists
         os.makedirs(self.hparams.processed_dir, exist_ok=True)
@@ -139,23 +148,31 @@ class SpatialOmicsDataModule(LightningDataModule):
             If the raw data directory does not exist.
         """
         if not os.path.exists(self.hparams.data_dir):
-            raise FileNotFoundError(f"Data directory {self.hparams.data_dir} does not exist. Please download the data.")
+            raise FileNotFoundError(
+                f"Data directory {self.hparams.data_dir} does not exist. Please download the data."
+            )
         else:
-            log.info(f"Data directory {self.hparams.data_dir} exists. Proceeding with preprocessing or loading the data.")
+            log.info(
+                f"Data directory {self.hparams.data_dir} exists. Proceeding with preprocessing or loading the data."
+            )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """
         Load and preprocess spatial omics data.
 
         This method loads preprocessed graphs from disk if they exist. If not, it preprocesses
-        the raw data, constructs graphs, and saves the preprocessed graphs to disk. This method 
-        is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, 
-        and `trainer.predict()`,
+        the raw data, constructs graphs, and saves the preprocessed graphs to disk. It also
+        splits the dataset into train, validation, and test datasets.
 
         Parameters:
-        ----------
+        -----------
         stage : str, optional
             The stage of the setup process (e.g., "fit", "test"). Default is None.
+
+        Raises:
+        -------
+        RuntimeError
+            If the batch size is not divisible by the number of devices in distributed training.
         """
         # divide batch size by the number of devices.
         if self.trainer is not None:
@@ -166,25 +183,25 @@ class SpatialOmicsDataModule(LightningDataModule):
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # load and process datasets only if not loaded already
-        if not self.graphs and not self.dataset:
+        if not self.dataset:
             processed_file = os.path.join(self.hparams.processed_dir, "dataset.pt")
 
             if os.path.exists(processed_file) and not self.hparams.redo_preprocess:
                 # load preprocessed graphs and not redo preprocessing
                 self.dataset = torch.load(processed_file, weights_only=False)
                 log.info(f"Loaded preprocessed graphs from {os.path.join(self.hparams.processed_dir, processed_file)}.")
-                # append each graph to self.graphs
-                self.graphs = [self.dataset[i] for i in range(len(self.dataset))]
             else:
                 # preprocess data and save to disk
                 log.info(f"Preprocessing data from {self.hparams.data_dir} and saving to {self.hparams.processed_dir}.")
-                # read samples into dict
                 file_paths = [os.path.join(self.hparams.data_dir, f) for f in os.listdir(self.hparams.data_dir) if f.endswith(".h5ad")]
-                samples = read_samples_into_dict(file_paths)
 
                 # preprocess samples and create graphs
-                self.graphs = []
-                for sample_name, adata in samples.items():
+                samples = []
+                for file_path in file_paths:
+                    adata = sc.read_h5ad(file_path)
+                    sample_name = os.path.splitext(os.path.basename(file_path))[0]
+                    samples.append(sample_name)
+
                     if "X_pca" in adata.obsm:
                         log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
                     else:
@@ -202,11 +219,10 @@ class SpatialOmicsDataModule(LightningDataModule):
                                          method=self.hparams.graph_method, 
                                          n_neighbors=self.hparams.n_neighbors
                             )
-                    self.graphs.append(graph)
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
                 # save preprocessed graphs
-                self.dataset = SpatialOmicsDataset({name: graph for name, graph in zip(samples.keys(), self.graphs)})
+                self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
@@ -217,7 +233,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         
         """
         # use this split for train / val / test split
-        # !!!! add validation !!!!
+        # !!!!!!!!!!!!!!!!!!!! add validation and adapt to new DataSet implementation !!!!!!!!!!!!!!!!!!!!
         # split the dataset into training and testing subsets
         # group samples by class
         merfish_samples = [graph for graph in self.graphs if graph.sample_name.startswith("MERFISH")]

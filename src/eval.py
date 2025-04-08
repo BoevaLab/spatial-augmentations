@@ -35,7 +35,9 @@ Functions:
 from typing import Any, Dict, List, Tuple
 
 import hydra
+import sys
 import rootutils
+import lightning as L
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -71,6 +73,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     Tuple[Dict[str, Any], Dict[str, Any]]
         A tuple containing metrics and a dictionary with all instantiated objects.
     """
+    if cfg.get("seed"):
+        L.seed_everything(cfg.seed, workers=True)
+    
     assert cfg.ckpt_path
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
@@ -121,6 +126,10 @@ def main(cfg: DictConfig) -> None:
     cfg : DictConfig
         A configuration object composed by Hydra.
     """
+    # log the command-line arguments
+    command = " ".join(sys.argv)
+    log.info(f"Command: python {command}")
+
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)

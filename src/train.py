@@ -38,6 +38,7 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+import sys
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -143,6 +144,10 @@ def main(cfg: DictConfig) -> Optional[float]:
     Optional[float]
         The optimized metric value, if applicable.
     """
+    # log the command-line arguments
+    command = " ".join(sys.argv)
+    log.info(f"Command: python {command}")
+
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
