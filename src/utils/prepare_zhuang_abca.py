@@ -92,7 +92,7 @@ def prepare_zhuang_abca(datasets, abc_cache, output_dir):
             sample_gene_expression = gene_expression.loc[sample_metadata.index]
 
             # subset spatial coordinates for the sample
-            sample_spatial_coords = sample_metadata[['x_ccf', 'y_ccf']].to_numpy()
+            sample_spatial_coords = sample_metadata[['x', 'y']].to_numpy()
 
             # Create AnnData object for the sample
             sample_adata = sc.AnnData(
