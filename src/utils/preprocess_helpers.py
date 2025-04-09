@@ -280,7 +280,8 @@ def create_graph(
             x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index,
             edge_weight=edge_weight,
-            sample_name=sample_name
+            sample_name=sample_name,
+            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float)
         )
 
     elif method == "pairwise":
@@ -308,7 +309,8 @@ def create_graph(
             x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index, 
             edge_weight=edge_weight,
-            sample_name=sample_name
+            sample_name=sample_name,
+            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float)
         )
         
     else:
