@@ -42,6 +42,8 @@ class BGRLLitModule(LightningModule):
         compile: bool,
         augmentation_mode: str = "baseline",
         mm: int = 0.99,
+        spatial_regularization_strength: float = 0.0,
+        node_subset_sz: int = 5000,
         drop_edge_p1: float = 0.1,
         drop_edge_p2: float = 0.1,
         drop_feat_p1: float = 0.1,
@@ -67,6 +69,10 @@ class BGRLLitModule(LightningModule):
             The graph augmentation mode to use. Default is "baseline".
         mm : float, optional
             Momentum for the target network updates. Default is 0.99.
+        spatial_regularization_strength : float, optional
+            Strength of the spatial regularization term. Default is 0.0.
+        node_subset_sz : int, optional
+            Size of the node subset for spatial regularization. Default is 5000.
         drop_edge_p1 : float, optional
             Dropout probability for edges in the first view. Default is 0.0.
         drop_edge_p2 : float, optional
@@ -224,8 +230,31 @@ class BGRLLitModule(LightningModule):
             augmented1.edge_weight
         )
 
-        # compute loss
+        # compute cosine similarity loss
         loss = self.criterion(q1, y2, q2, y1)
+
+        # optionally add spatial regularization term to loss
+        if hasattr(batch, "position") and self.hparams.spatial_regularization_strength > 0:
+            coords = batch.position.to(self.device)
+            z = self.net.online_encoder(batch.x, batch.edge_index, batch.edge_weight)
+
+            if batch.x.size(0) > 5000:
+                node_subset_sz = self.hparams.node_subset_sz
+                cell_random_subset_1 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(self.device)
+                cell_random_subset_2 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(self.device)
+                z1, z2 = z[cell_random_subset_1], z[cell_random_subset_2]
+                c1, c2 = coords[cell_random_subset_1], coords[cell_random_subset_2]
+                pdist = torch.nn.PairwiseDistance(p=2)
+                z_dists = pdist(z1, z2) / torch.max(pdist(z1, z2))
+                sp_dists = pdist(c1, c2) / torch.max(pdist(c1, c2))
+                n_items = z_dists.size(0)
+            else:
+                z_dists = torch.cdist(z, z, p=2) / torch.max(torch.cdist(z, z, p=2))
+                sp_dists = torch.cdist(coords, coords, p=2) / torch.max(torch.cdist(coords, coords, p=2))
+                n_items = z.size(0) ** 2
+
+            penalty_1 = torch.sum((1.0 - z_dists) * sp_dists) / n_items
+            loss += self.hparams.spatial_regularization_strength * penalty_1
 
         # log metrics
         self.train_loss(loss)
