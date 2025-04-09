@@ -99,7 +99,7 @@ def save_sample(
     
     # save the AnnData object
     adata_file = os.path.join(output_dir, f"{sample_name}.h5ad")
-    adata.write(adata_file)
+    adata.write(adata_file, compression="gzip")
     log.info(f"Saved AnnData object to {adata_file}")
     
     # save the PyTorch Geometric graph
@@ -182,7 +182,7 @@ def preprocess_sample(
         X_augmented = a + X * (1 + s)
         adata.X = X_augmented
 
-    # step 4. perform PCA with n_pca_components components
+    # step 4: perform PCA with n_pca_components components
     sc.pp.pca(adata, n_comps=n_pca_components)
 
 def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:
@@ -269,7 +269,7 @@ def create_graph(
         
         # symmetrize adjacency matrix
         adj = np.maximum(adj, adj.T)
-        adata.obsm['adj'] = adj
+        #adata.obsm['adj'] = adj
 
         # convert adjacency matrix to COO format
         edge_index = np.array(np.nonzero(adj))
@@ -297,7 +297,7 @@ def create_graph(
         l = np.mean(adj)
         adj_exp = np.exp(-1 * (adj**2) / (2 * (l**2)))
 
-        adata.obsm['adj'] = adj_exp
+        #adata.obsm['adj'] = adj_exp
 
         # convert adjacency matrix to COO format for edge index and edge attributes
         edge_index = np.array(np.nonzero(adj))
