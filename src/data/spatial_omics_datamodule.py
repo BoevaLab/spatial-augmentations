@@ -217,6 +217,9 @@ class SpatialOmicsDataModule(LightningDataModule):
                                          method=self.hparams.graph_method, 
                                          n_neighbors=self.hparams.n_neighbors
                             )
+
+                    print(f"Graph.device: {graph.x.device}")
+
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
 
                 # save preprocessed graphs
