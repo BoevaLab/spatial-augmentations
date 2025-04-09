@@ -28,6 +28,7 @@ Usage:
 
 from typing import Optional, Dict, Any
 import os
+import gc
 import torch
 import scanpy as sc
 from lightning import LightningDataModule
@@ -58,8 +59,6 @@ class SpatialOmicsDataModule(LightningDataModule):
     -----------
     batch_size_per_device : int
         Batch size for dataloaders, adjusted for distributed training.
-    graphs : list
-        List of graph objects created from the dataset.
     dataset : SpatialOmicsDataset
         Dataset object containing graphs and metadata.
     train_dataset : SpatialOmicsDataset
@@ -220,6 +219,9 @@ class SpatialOmicsDataModule(LightningDataModule):
                                          n_neighbors=self.hparams.n_neighbors
                             )
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
+                    del adata
+                    del graph
+                    gc.collect()
 
                 # save preprocessed graphs
                 self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)
