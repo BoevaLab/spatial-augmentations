@@ -105,7 +105,7 @@ def save_sample(
     # save the PyTorch Geometric graph
     log.info(f"Creating graph for sample: {sample_name}")
     graph_file = os.path.join(output_dir, f"{sample_name}_graph.pt")
-    torch.save(graph.to("cpu"), graph_file)
+    torch.save(graph, graph_file)
     log.info(f"Saved graph to {graph_file}")
 
 def preprocess_sample(
@@ -273,11 +273,11 @@ def create_graph(
 
         # convert adjacency matrix to COO format
         edge_index = np.array(np.nonzero(adj))
-        edge_index = torch.tensor(edge_index, dtype=torch.long, device="cpu")
-        edge_weight = torch.ones(edge_index.shape[1], dtype=torch.float, device="cpu")
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        edge_weight = torch.ones(edge_index.shape[1], dtype=torch.float)
 
         return Data(
-            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float, device="cpu"), 
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index,
             edge_weight=edge_weight,
             sample_name=sample_name
@@ -301,11 +301,11 @@ def create_graph(
 
         # convert adjacency matrix to COO format for edge index and edge attributes
         edge_index = np.array(np.nonzero(adj))
-        edge_index = torch.tensor(edge_index, dtype=torch.long, device="cpu")
-        edge_weight = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float, device="cpu")
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        edge_weight = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float)
 
         return Data(
-            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float, device="cpu"), 
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
             edge_index=edge_index, 
             edge_weight=edge_weight,
             sample_name=sample_name

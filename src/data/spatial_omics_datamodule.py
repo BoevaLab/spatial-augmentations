@@ -28,6 +28,7 @@ Usage:
 
 from typing import Optional, Dict, Any
 import os
+import gc
 import torch
 import scanpy as sc
 from lightning import LightningDataModule
@@ -217,10 +218,10 @@ class SpatialOmicsDataModule(LightningDataModule):
                                          method=self.hparams.graph_method, 
                                          n_neighbors=self.hparams.n_neighbors
                             )
-
-                    print(f"Graph.device: {graph.x.device}")
-
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
+                    del adata
+                    del graph
+                    gc.collect()
 
                 # save preprocessed graphs
                 self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)

@@ -188,9 +188,6 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The training loss for the batch.
         """
-
-        print(f"Self.device: {self.device}")
-
         transform1 = get_graph_augmentation(
             self.augmentation_mode,
             self.drop_edge_p1, 
@@ -208,9 +205,6 @@ class BGRLLitModule(LightningModule):
 
         augmented1 = transform1(batch)
         augmented2 = transform2(batch)
-
-        print(f"Augmented1.device: {augmented1.x.device}")
-        print(f"Augmented2.device: {augmented2.x.device}")
         
         # forward pass
         q1, y2 = self.forward(
