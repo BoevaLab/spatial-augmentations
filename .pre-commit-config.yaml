@@ -82,6 +82,7 @@ repos:
       - id: prettier
         types: [yaml]
         exclude: "environment.yaml"
+        args: ["--cache-location", ".cache/prettier-cache"]
 
   # shell scripts linter
   - repo: https://github.com/shellcheck-py/shellcheck-py
