@@ -1,18 +1,26 @@
-from typing import Any, Dict, Tuple, List
-import torch
-import scanpy as sc
-import os
 import csv
+import os
+from typing import Any, Dict, List, Tuple
+
+import scanpy as sc
+import torch
 from lightning import LightningModule
-from torchmetrics import MeanMetric
-from torchmetrics.clustering import NormalizedMutualInfoScore, AdjustedRandScore, HomogeneityScore, CompletenessScore
 from torch.nn.functional import cosine_similarity
+from torchmetrics import MeanMetric
+from torchmetrics.clustering import (
+    AdjustedRandScore,
+    CompletenessScore,
+    HomogeneityScore,
+    NormalizedMutualInfoScore,
+)
+
+from src.utils.clustering_utils import set_leiden_resolution
 from src.utils.graph_augmentations import get_graph_augmentation
 from src.utils.schedulers import CosineDecayScheduler
-from src.utils.clustering_utils import set_leiden_resolution
 
 # TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
 # TODO: file path to data dir in test step (make as config)
+
 
 class BGRLLitModule(LightningModule):
     """
@@ -36,7 +44,7 @@ class BGRLLitModule(LightningModule):
 
     def __init__(
         self,
-        net : torch.nn.Module,
+        net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
@@ -118,13 +126,13 @@ class BGRLLitModule(LightningModule):
         self.test_outputs = []
 
     def forward(
-        self, 
+        self,
         online_x: torch.Tensor,
         online_edge_index: torch.Tensor,
         online_edge_weight: torch.Tensor,
         target_x: torch.Tensor,
         target_edge_index: torch.Tensor,
-        target_edge_weight: torch.Tensor
+        target_edge_weight: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the BGRL model.
@@ -143,14 +151,15 @@ class BGRLLitModule(LightningModule):
             - online_q: The predictions from the online network.
             - target_y: The target embeddings from the target network.
         """
-        return self.net(online_x, 
-                        online_edge_index, 
-                        online_edge_weight, 
-                        target_x, 
-                        target_edge_index, 
-                        target_edge_weight
-                )
-    
+        return self.net(
+            online_x,
+            online_edge_index,
+            online_edge_weight,
+            target_x,
+            target_edge_index,
+            target_edge_weight,
+        )
+
     def cosine_similarity_loss(self, online_q1, target_y2, online_q2, target_y1):
         """
         Compute the cosine similarity loss for the BGRL method.
@@ -171,15 +180,20 @@ class BGRLLitModule(LightningModule):
         torch.Tensor
             The cosine similarity loss.
         """
-        loss = 2 - cosine_similarity(online_q1, target_y2.detach(), dim=-1).mean() \
-                 - cosine_similarity(online_q2, target_y1.detach(), dim=-1).mean()
+        loss = (
+            2
+            - cosine_similarity(online_q1, target_y2.detach(), dim=-1).mean()
+            - cosine_similarity(online_q2, target_y1.detach(), dim=-1).mean()
+        )
         return loss
 
-    def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+    def training_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> torch.Tensor:
         """
         Perform a single training step.
 
-        This method applies graph augmentations, computes the forward pass, calculates the loss, 
+        This method applies graph augmentations, computes the forward pass, calculates the loss,
         and updates the target network.
 
         Parameters:
@@ -196,38 +210,38 @@ class BGRLLitModule(LightningModule):
         """
         transform1 = get_graph_augmentation(
             self.augmentation_mode,
-            self.drop_edge_p1, 
-            self.drop_feat_p1, 
-            self.hparams.mu, 
-            self.hparams.p_lambda
+            self.drop_edge_p1,
+            self.drop_feat_p1,
+            self.hparams.mu,
+            self.hparams.p_lambda,
         )
         transform2 = get_graph_augmentation(
             self.augmentation_mode,
-            self.drop_edge_p2, 
-            self.drop_feat_p2, 
-            self.hparams.mu, 
-            self.hparams.p_lambda
+            self.drop_edge_p2,
+            self.drop_feat_p2,
+            self.hparams.mu,
+            self.hparams.p_lambda,
         )
 
         augmented1 = transform1(batch)
         augmented2 = transform2(batch)
-        
+
         # forward pass
         q1, y2 = self.forward(
-            augmented1.x, 
-            augmented1.edge_index, 
-            augmented1.edge_weight, 
-            augmented2.x, 
-            augmented2.edge_index, 
-            augmented2.edge_weight
+            augmented1.x,
+            augmented1.edge_index,
+            augmented1.edge_weight,
+            augmented2.x,
+            augmented2.edge_index,
+            augmented2.edge_weight,
         )
         q2, y1 = self.forward(
-            augmented2.x, 
-            augmented2.edge_index, 
-            augmented2.edge_weight, 
-            augmented1.x, 
-            augmented1.edge_index, 
-            augmented1.edge_weight
+            augmented2.x,
+            augmented2.edge_index,
+            augmented2.edge_weight,
+            augmented1.x,
+            augmented1.edge_index,
+            augmented1.edge_weight,
         )
 
         # compute cosine similarity loss
@@ -240,8 +254,12 @@ class BGRLLitModule(LightningModule):
 
             if batch.x.size(0) > 5000:
                 node_subset_sz = self.hparams.node_subset_sz
-                cell_random_subset_1 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(self.device)
-                cell_random_subset_2 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(self.device)
+                cell_random_subset_1 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(
+                    self.device
+                )
+                cell_random_subset_2 = torch.randint(0, z.shape[0], (node_subset_sz,)).to(
+                    self.device
+                )
                 z1, z2 = z[cell_random_subset_1], z[cell_random_subset_2]
                 c1, c2 = coords[cell_random_subset_1], coords[cell_random_subset_2]
                 pdist = torch.nn.PairwiseDistance(p=2)
@@ -250,7 +268,9 @@ class BGRLLitModule(LightningModule):
                 n_items = z_dists.size(0)
             else:
                 z_dists = torch.cdist(z, z, p=2) / torch.max(torch.cdist(z, z, p=2))
-                sp_dists = torch.cdist(coords, coords, p=2) / torch.max(torch.cdist(coords, coords, p=2))
+                sp_dists = torch.cdist(coords, coords, p=2) / torch.max(
+                    torch.cdist(coords, coords, p=2)
+                )
                 n_items = z.size(0) ** 2
 
             penalty_1 = torch.sum((1.0 - z_dists) * sp_dists) / n_items
@@ -264,9 +284,11 @@ class BGRLLitModule(LightningModule):
         self.net.update_target_network(self.mm)
 
         return loss
-    
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> Dict[str, torch.Tensor]:
-        # run online encoder 
+
+    def test_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> Dict[str, torch.Tensor]:
+        # run online encoder
         with torch.no_grad():
             node_embeddings = self.net.online_encoder(batch.x, batch.edge_index, batch.edge_weight)
 
@@ -278,7 +300,7 @@ class BGRLLitModule(LightningModule):
         # append cell embeddings to adata object
         cell_embeddings_np = node_embeddings.cpu().numpy()
         adata.obsm["cell_embeddings"] = cell_embeddings_np
-        
+
         # get ground truth labels
         domain_name = None
         if sample_name.startswith("MERFISH_small"):
@@ -293,14 +315,16 @@ class BGRLLitModule(LightningModule):
 
         # determine resolution based on number of ground truth labels
         sc.pp.neighbors(adata, use_rep="cell_embeddings")
-        resolution = set_leiden_resolution(adata, target_num_clusters=ground_truth_labels.nunique())
+        resolution = set_leiden_resolution(
+            adata, target_num_clusters=ground_truth_labels.nunique()
+        )
         # perform leiden clustering
         sc.tl.leiden(adata, resolution=resolution)
         leiden_labels = adata.obs["leiden"]
 
         # convert ground truth labels and leiden labels to PyTorch tensors
         ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
-        ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)        
+        ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
         leiden_labels = adata.obs["leiden"].astype("category").cat.codes
         leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
 
@@ -318,18 +342,20 @@ class BGRLLitModule(LightningModule):
         self.log("test/completeness", completeness, on_step=True, on_epoch=False, prog_bar=False)
 
         # save metrics for aggregation
-        self.test_outputs.append({
-            "sample_name": sample_name, 
-            "nmi": nmi, 
-            "ari": ari, 
-            "homogeneity": homogeneity, 
-            "completeness": completeness
-        })
+        self.test_outputs.append(
+            {
+                "sample_name": sample_name,
+                "nmi": nmi,
+                "ari": ari,
+                "homogeneity": homogeneity,
+                "completeness": completeness,
+            }
+        )
 
         # save the updated adata file to the logs directory
-        #save_dir = os.path.join(self.logger.save_dir, "adata_files")
-        #os.makedirs(save_dir, exist_ok=True)
-        #adata.write_h5ad(os.path.join(save_dir, f"{sample_name}.h5ad"), compression="gzip")
+        # save_dir = os.path.join(self.logger.save_dir, "adata_files")
+        # os.makedirs(save_dir, exist_ok=True)
+        # adata.write_h5ad(os.path.join(save_dir, f"{sample_name}.h5ad"), compression="gzip")
 
     def on_test_epoch_end(self) -> None:
         """
@@ -343,7 +369,9 @@ class BGRLLitModule(LightningModule):
         # save graph-level metrics to a CSV file
         file_path = os.path.join(save_dir, "test_results.csv")
         with open(file_path, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"])
+            writer = csv.DictWriter(
+                file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"]
+            )
             writer.writeheader()
             writer.writerows(self.test_outputs)
 

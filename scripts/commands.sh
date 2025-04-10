@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # run only training
 python src/train.py task_name=task_name tags="[first_tag, second_tag]"
 

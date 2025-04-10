@@ -1,7 +1,7 @@
 """
 Training Script for Spatial Omics Models.
 
-This script handles the training and evaluation of models using PyTorch Lightning. It leverages Hydra for configuration 
+This script handles the training and evaluation of models using PyTorch Lightning. It leverages Hydra for configuration
 management and supports features such as logging, callbacks, and hyperparameter optimization.
 
 Main Features:
@@ -32,13 +32,13 @@ Functions:
 - main: Entry point for the script, integrates Hydra for configuration management.
 """
 
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import lightning as L
 import rootutils
 import torch
-import sys
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -61,7 +61,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Train the model and optionally evaluate it on a test set using the best weights 
+    Train the model and optionally evaluate it on a test set using the best weights
     obtained during training.
 
     Parameters:

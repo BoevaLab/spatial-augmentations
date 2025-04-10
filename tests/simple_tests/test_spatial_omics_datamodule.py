@@ -1,13 +1,13 @@
-import torch
-import scanpy as sc
-from torch_geometric.data import Data
 import rootutils
+import scanpy as sc
+import torch
+from torch_geometric.data import Data
+
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.data.spatial_omics_datamodule import SpatialOmicsDataModule
 
 
 def test_spatial_omics_datamodule():
-
     # initialize the datamodule
     datamodule = SpatialOmicsDataModule(
         data_dir="data/domain/raw/",
@@ -41,8 +41,9 @@ def test_spatial_omics_datamodule():
         print(batch)
     for batch in val_loader:
         print(batch)
-    
+
     print("Test passed!")
+
 
 if __name__ == "__main__":
     test_spatial_omics_datamodule()

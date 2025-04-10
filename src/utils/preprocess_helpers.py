@@ -1,15 +1,15 @@
 """
 Utility functions and classes for preprocessing spatial omics data.
 
-This module provides helper functions and classes to preprocess spatial omics data, 
-including reading and saving AnnData objects, applying preprocessing steps, constructing 
+This module provides helper functions and classes to preprocess spatial omics data,
+including reading and saving AnnData objects, applying preprocessing steps, constructing
 graph representations, and managing datasets for PyTorch Geometric models.
 
 Functions:
 ----------
 - read_samples_into_dict: Reads multiple AnnData objects into a dictionary.
 - save_sample: Saves an AnnData object and its corresponding graph to disk.
-- preprocess_sample: Applies preprocessing steps to an AnnData object, including filtering, 
+- preprocess_sample: Applies preprocessing steps to an AnnData object, including filtering,
   normalization, augmentation, and dimensionality reduction.
 - euclid_dist: Computes the Euclidean distance between two vectors.
 - create_graph: Constructs a graph representation of spatial data from an AnnData object.
@@ -19,14 +19,14 @@ Classes:
 - SpatialOmicsDataset: A custom PyTorch Geometric dataset for managing spatial omics data.
 """
 
-
 import os
-import scanpy as sc
+
 import numpy as np
-import torch
-from torch_geometric.data import Data, Dataset
-from scipy.spatial import cKDTree
 import rootutils
+import scanpy as sc
+import torch
+from scipy.spatial import cKDTree
+from torch_geometric.data import Data, Dataset
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -47,24 +47,20 @@ def read_samples_into_dict(file_paths) -> dict:
     Returns:
     -------
     dict
-        A dictionary where the keys are the filenames (without extensions) 
+        A dictionary where the keys are the filenames (without extensions)
         and the values are the corresponding AnnData objects.
     """
     adata_dict = {}
-    
+
     for file in file_paths:
         adata = sc.read_h5ad(file)
         file_name = os.path.splitext(os.path.basename(file))[0]
         adata_dict[file_name] = adata
-        
+
     return adata_dict
 
-def save_sample(
-    adata: sc.AnnData, 
-    graph: Data, 
-    output_dir: str, 
-    sample_name: str
-) -> None:
+
+def save_sample(adata: sc.AnnData, graph: Data, output_dir: str, sample_name: str) -> None:
     """
     Saves the AnnData object and PyTorch Geometric graph for a sample.
 
@@ -95,30 +91,33 @@ def save_sample(
     if adata is None:
         raise ValueError("The `adata` object is None. Please provide a valid AnnData object.")
     if graph is None:
-        raise ValueError("The `graph` object is None. Please provide a valid PyTorch Geometric Data object.")
-    
+        raise ValueError(
+            "The `graph` object is None. Please provide a valid PyTorch Geometric Data object."
+        )
+
     # save the AnnData object
     adata_file = os.path.join(output_dir, f"{sample_name}.h5ad")
     adata.write(adata_file, compression="gzip")
     log.info(f"Saved AnnData object to {adata_file}")
-    
+
     # save the PyTorch Geometric graph
     log.info(f"Creating graph for sample: {sample_name}")
     graph_file = os.path.join(output_dir, f"{sample_name}_graph.pt")
     torch.save(graph, graph_file)
     log.info(f"Saved graph to {graph_file}")
 
+
 def preprocess_sample(
-    adata: sc.AnnData, 
-    min_cells: int, 
-    min_genes: int, 
-    n_pca_components: int, 
-    augmentation_mode: str, 
-    lambda_param: float, 
-    sigma_param: float
+    adata: sc.AnnData,
+    min_cells: int,
+    min_genes: int,
+    n_pca_components: int,
+    augmentation_mode: str,
+    lambda_param: float,
+    sigma_param: float,
 ) -> None:
     """
-    Preprocesses a single AnnData object by applying filtering, normalization, optional pseudo batch effect augmentation, 
+    Preprocesses a single AnnData object by applying filtering, normalization, optional pseudo batch effect augmentation,
     and dimensionality reduction steps.
 
     Parameters:
@@ -161,17 +160,23 @@ def preprocess_sample(
     min_genes_dynamic = max(min_genes, int(total_genes * 0.01))
 
     # step 1: filter genes and cells
-    sc.pp.filter_genes(adata, min_cells=min_cells)              # filter genes expressed in less than min_cells cells
-    sc.pp.filter_cells(adata, min_genes=min_genes_dynamic)      # filter cells with less than min_genes genes expressed
+    sc.pp.filter_genes(
+        adata, min_cells=min_cells
+    )  # filter genes expressed in less than min_cells cells
+    sc.pp.filter_cells(
+        adata, min_genes=min_genes_dynamic
+    )  # filter cells with less than min_genes genes expressed
 
     # step 2: normalize, scale, and log transform
-    sc.pp.normalize_total(adata, target_sum=1e5)                # normalize gene expression values with a target sum per cell of 1e5
-    sc.pp.log1p(adata)                                          # log transform gene expression values (log1p(x) = log(x+1))
-    sc.pp.scale(adata)                                          # scale gene expression values to unit variance and zero mean
+    sc.pp.normalize_total(
+        adata, target_sum=1e5
+    )  # normalize gene expression values with a target sum per cell of 1e5
+    sc.pp.log1p(adata)  # log transform gene expression values (log1p(x) = log(x+1))
+    sc.pp.scale(adata)  # scale gene expression values to unit variance and zero mean
 
     # step 3: add pseudo batch effect if in advanced augmentation mode
     if augmentation_mode == "pseudo_batch_effect":
-        X = adata.X     # gene expression matrix
+        X = adata.X  # gene expression matrix
         P = X.shape[1]  # number of genes
 
         # generate random vectors (following exponential and normal distributions)
@@ -184,6 +189,7 @@ def preprocess_sample(
 
     # step 4: perform PCA with n_pca_components components
     sc.pp.pca(adata, n_comps=n_pca_components)
+
 
 def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:
     """
@@ -203,12 +209,8 @@ def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:
     """
     return np.linalg.norm(t1 - t2)
 
-def create_graph(
-    adata: sc.AnnData, 
-    sample_name: str, 
-    method: str, 
-    n_neighbors: int
-) -> Data:
+
+def create_graph(adata: sc.AnnData, sample_name: str, method: str, n_neighbors: int) -> Data:
     """
     Creates a graph representation of spatial data from an AnnData object.
 
@@ -253,23 +255,25 @@ def create_graph(
     if "spatial" not in adata.obsm:
         raise ValueError("The AnnData object does not contain 'spatial' coordinates in `obsm`.")
     if "X_pca" not in adata.obsm:
-        raise ValueError("The AnnData object does not contain PCA-transformed features in `obsm['X_pca']`.")
+        raise ValueError(
+            "The AnnData object does not contain PCA-transformed features in `obsm['X_pca']`."
+        )
 
     if method == "knn":
-        position = adata.obsm['spatial']
-        
+        position = adata.obsm["spatial"]
+
         # cKDTree for efficient k-NN search
         tree = cKDTree(position)
         _, indices = tree.query(position, k=n_neighbors + 1)  # +1 to include the point itself
-        
+
         # create adjacency matrix
         adj = np.zeros((position.shape[0], position.shape[0]), dtype=np.int32)
         for i, neighbors in enumerate(indices):
             adj[i, neighbors[1:]] = 1  # skip the first neighbor (itself)
-        
+
         # symmetrize adjacency matrix
         adj = np.maximum(adj, adj.T)
-        #adata.obsm['adj'] = adj
+        # adata.obsm['adj'] = adj
 
         # convert adjacency matrix to COO format
         edge_index = np.array(np.nonzero(adj))
@@ -277,11 +281,11 @@ def create_graph(
         edge_weight = torch.ones(edge_index.shape[1], dtype=torch.float)
 
         return Data(
-            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float),
             edge_index=edge_index,
             edge_weight=edge_weight,
             sample_name=sample_name,
-            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float)
+            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float),
         )
 
     elif method == "pairwise":
@@ -298,7 +302,7 @@ def create_graph(
         l = np.mean(adj)
         adj_exp = np.exp(-1 * (adj**2) / (2 * (l**2)))
 
-        #adata.obsm['adj'] = adj_exp
+        # adata.obsm['adj'] = adj_exp
 
         # convert adjacency matrix to COO format for edge index and edge attributes
         edge_index = np.array(np.nonzero(adj))
@@ -306,13 +310,13 @@ def create_graph(
         edge_weight = torch.tensor(adj_exp[edge_index[0], edge_index[1]], dtype=torch.float)
 
         return Data(
-            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float), 
-            edge_index=edge_index, 
+            x=torch.tensor(adata.obsm["X_pca"].copy(), dtype=torch.float),
+            edge_index=edge_index,
             edge_weight=edge_weight,
             sample_name=sample_name,
-            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float)
+            position=torch.tensor(adata.obsm["spatial"].copy(), dtype=torch.float),
         )
-        
+
     else:
         raise ValueError("Invalid method. Choose between 'knn' and 'pairwise'")
 
@@ -337,6 +341,7 @@ class SpatialOmicsDataset(Dataset):
     get(idx: int) -> Data
         Returns the sample at the specified index.
     """
+
     def __init__(self, samples: list, graph_dir: str):
         """
         Initializes the SpatialOmicsDataset.
@@ -379,5 +384,5 @@ class SpatialOmicsDataset(Dataset):
         """
         sample_name = self.samples[idx]
         graph_path = os.path.join(self.graph_dir, f"{sample_name}_graph.pt")
-        graph = torch.load(graph_path, weights_only=False)
+        graph = torch.load(graph_path, weights_only=False)  # nosec B614
         return graph

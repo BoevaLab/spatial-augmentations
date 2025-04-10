@@ -1,13 +1,13 @@
 """
 BGRL Projector Module.
 
-This module defines the `BGRLProjector` class, a simple multi-layer perceptron (MLP) used as a projector 
-in the Bootstrap Graph Representation Learning (BGRL) framework. The projector maps node embeddings 
-from the online encoder into a latent space for alignment with the target encoder in self-supervised 
+This module defines the `BGRLProjector` class, a simple multi-layer perceptron (MLP) used as a projector
+in the Bootstrap Graph Representation Learning (BGRL) framework. The projector maps node embeddings
+from the online encoder into a latent space for alignment with the target encoder in self-supervised
 learning tasks.
 
-The `BGRLProjector` is designed to process node embeddings and project them into a space where they 
-can be compared to the output of the target encoder. It consists of two fully connected layers with 
+The `BGRLProjector` is designed to process node embeddings and project them into a space where they
+can be compared to the output of the target encoder. It consists of two fully connected layers with
 a PReLU activation function in between.
 
 Classes:
@@ -16,8 +16,8 @@ Classes:
 
 Usage:
 ------
-The `BGRLProjector` is typically used as part of the BGRL model to process embeddings from the online 
-encoder. It can be initialized with custom input, hidden, and output sizes to match the requirements 
+The `BGRLProjector` is typically used as part of the BGRL model to process embeddings from the online
+encoder. It can be initialized with custom input, hidden, and output sizes to match the requirements
 of the task.
 
 Example:
@@ -49,12 +49,7 @@ class BGRLProjector(nn.Module):
         A sequential container of layers, including two linear layers and a PReLU activation.
     """
 
-    def __init__(
-        self,
-        input_size: int,
-        output_size: int,
-        hidden_size: int = 64
-    ) -> None:
+    def __init__(self, input_size: int, output_size: int, hidden_size: int = 64) -> None:
         """
         Initialize the `BGRLProjector` module.
 
@@ -73,9 +68,9 @@ class BGRLProjector(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_size, hidden_size, bias=True),
             nn.PReLU(1),
-            nn.Linear(hidden_size, output_size, bias=True)
+            nn.Linear(hidden_size, output_size, bias=True),
         )
-        
+
         # initialize weights using Kaiming uniform initialization
         self.reset_parameters()
 
@@ -96,7 +91,7 @@ class BGRLProjector(nn.Module):
             The projected embeddings with shape [num_nodes, output_size].
         """
         return self.net(x)
-    
+
     def reset_parameters(self):
         """
         Reset the parameters of the linear layers in the projector.

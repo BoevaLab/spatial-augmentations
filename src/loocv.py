@@ -1,7 +1,7 @@
 """
 Training Script for Spatial Omics Models.
 
-This script handles the training and evaluation of models using PyTorch Lightning. It leverages Hydra for configuration 
+This script handles the training and evaluation of models using PyTorch Lightning. It leverages Hydra for configuration
 management and supports features such as logging, callbacks, and hyperparameter optimization.
 
 Main Features:
@@ -32,19 +32,19 @@ Functions:
 - main: Entry point for the script, integrates Hydra for configuration management.
 """
 
+import csv
+import os
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import lightning as L
 import rootutils
 import torch
-import os
-import sys
-import csv
-from sklearn.model_selection import LeaveOneOut
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+from sklearn.model_selection import LeaveOneOut
 from torch_geometric.data import DataLoader
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -65,7 +65,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 @task_wrapper
 def loocv(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Train the model and optionally evaluate it on a test set using the best weights 
+    Train the model and optionally evaluate it on a test set using the best weights
     obtained during training.
 
     Parameters:
@@ -100,7 +100,9 @@ def loocv(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         test_subset = torch.utils.data.Subset(dataset, test_idx)
 
         # Update datamodule with subsets
-        datamodule.train_dataloader = lambda: DataLoader(train_subset, batch_size=cfg.data.batch_size)
+        datamodule.train_dataloader = lambda: DataLoader(
+            train_subset, batch_size=cfg.data.batch_size
+        )
         datamodule.test_dataloader = lambda: DataLoader(test_subset, batch_size=1)
 
         log.info(f"Instantiating model <{cfg.model._target_}>")
@@ -143,7 +145,9 @@ def loocv(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
         all_metrics.append(metric_dict)
 
-    aggregated_metrics = {key: torch.mean(torch.tensor([m[key] for m in all_metrics])) for key in all_metrics[0]}
+    aggregated_metrics = {
+        key: torch.mean(torch.tensor([m[key] for m in all_metrics])) for key in all_metrics[0]
+    }
     return aggregated_metrics, object_dict
 
 
@@ -165,7 +169,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     # log the command-line arguments
     command = " ".join(sys.argv)
     log.info(f"Command: python {command}")
-    
+
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)

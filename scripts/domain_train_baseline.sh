@@ -8,7 +8,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --time=2:00:00
 
-source ~/.bashrc
+# shellcheck disable=SC1091
+source "$HOME/.bashrc"
 conda activate augmentation
 
 srun python src/train.py tags="[baseline, train]" \

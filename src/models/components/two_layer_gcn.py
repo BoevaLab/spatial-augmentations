@@ -1,8 +1,8 @@
 """
 Two-Layer Graph Convolutional Network (GCN) Module.
 
-This module defines the `TwoLayerGCN` class, a simple two-layer graph convolutional network (GCN) 
-designed for processing graph-structured data. The model is suitable for tasks such as node 
+This module defines the `TwoLayerGCN` class, a simple two-layer graph convolutional network (GCN)
+designed for processing graph-structured data. The model is suitable for tasks such as node
 classification, clustering, or domain identification.
 
 The `TwoLayerGCN` consists of:
@@ -22,7 +22,7 @@ Classes:
 
 Usage:
 ------
-The `TwoLayerGCN` can be used as a standalone model for graph-based tasks or as a component in 
+The `TwoLayerGCN` can be used as a standalone model for graph-based tasks or as a component in
 larger graph neural network architectures, e.g., as an encoder in BGRL.
 
 Example:
@@ -30,27 +30,28 @@ Example:
 >>> import torch
 >>> from torch_geometric.data import Data
 >>> from two_layer_gcn import TwoLayerGCN
->>> 
+>>>
 >>> # Example graph data
 >>> x = torch.randn(10, 50)  # 10 nodes with 50 features each
 >>> edge_index = torch.tensor([[0, 1, 2], [1, 2, 0]])  # 3 edges
->>> 
+>>>
 >>> # Initialize the model
 >>> model = TwoLayerGCN(input_size=50, hidden_size=32, output_size=16, dropout=0.5)
->>> 
+>>>
 >>> # Forward pass
 >>> output = model(x, edge_index)
 >>> print(output.shape)  # Output: torch.Size([10, 16])
 """
 
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
 from typing import Optional
 
+import torch
+import torch.nn.functional as F
+from torch import nn
+from torch_geometric.nn import GCNConv
 
 # TODO: Add batch normalization to the hidden layer
+
 
 class TwoLayerGCN(nn.Module):
     """
@@ -66,7 +67,7 @@ class TwoLayerGCN(nn.Module):
         input_size: int = 50,
         hidden_size: int = 32,
         output_size: int = 16,
-        dropout: float = 0.5
+        dropout: float = 0.5,
     ) -> None:
         """
         Initialize a `TwoLayerGCN` module.
@@ -96,8 +97,8 @@ class TwoLayerGCN(nn.Module):
         """
         Reset the parameters of the GCN layers.
 
-        This method reinitializes the weights and biases of the graph convolutional layers (`conv1` and `conv2`) 
-        to their default initialization values. It is useful for ensuring reproducibility or reinitializing 
+        This method reinitializes the weights and biases of the graph convolutional layers (`conv1` and `conv2`)
+        to their default initialization values. It is useful for ensuring reproducibility or reinitializing
         the model during training experiments.
 
         Methods:
@@ -108,11 +109,8 @@ class TwoLayerGCN(nn.Module):
         self.conv2.reset_parameters()
 
     def forward(
-            self, 
-            x: torch.Tensor, 
-            edge_index: torch.Tensor, 
-            edge_weight: Optional[torch.Tensor] = None
-        ) -> torch.Tensor:
+        self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         Perform a single forward pass through the two-layer GCN.
 

@@ -25,24 +25,23 @@ Usage:
 >>> train_loader = datamodule.train_dataloader()
 """
 
-
-from typing import Optional, Dict, Any
-import os
 import gc
-import torch
-import scanpy as sc
-from lightning import LightningDataModule
-from torch_geometric.loader import DataLoader
-from torch.utils.data import random_split
+import os
+from typing import Any, Dict, Optional
 
-from src.utils.preprocess_helpers import (
-    preprocess_sample, 
-    create_graph, 
-    save_sample, 
-    SpatialOmicsDataset
-)
+import scanpy as sc
+import torch
+from lightning import LightningDataModule
+from torch.utils.data import random_split
+from torch_geometric.loader import DataLoader
 
 from src.utils import RankedLogger
+from src.utils.preprocess_helpers import (
+    SpatialOmicsDataset,
+    create_graph,
+    preprocess_sample,
+    save_sample,
+)
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -81,7 +80,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         augmentation_mode: str = "baseline",
         lambda_param: float = 0.1,
         sigma_param: float = 0.1,
-        n_pca_components = 50,
+        n_pca_components: int = 50,
         graph_method: str = "knn",
         n_neighbors: int = 10,
         redo_preprocess: bool = False,
@@ -138,7 +137,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         Verify that the raw data files exist.
 
         This method checks if the directory containing raw spatial omics data exists.
-        If the directory does not exist, it raises a FileNotFoundError. Lightning ensures 
+        If the directory does not exist, it raises a FileNotFoundError. Lightning ensures
         that `self.prepare_data()` is called only within a single process on CPU.
 
         Raises:
@@ -187,12 +186,20 @@ class SpatialOmicsDataModule(LightningDataModule):
 
             if os.path.exists(processed_file) and not self.hparams.redo_preprocess:
                 # load preprocessed graphs and not redo preprocessing
-                self.dataset = torch.load(processed_file, weights_only=False)
-                log.info(f"Loaded preprocessed graphs from {os.path.join(self.hparams.processed_dir, processed_file)}.")
+                self.dataset = torch.load(processed_file, weights_only=False)  # nosec B614
+                log.info(
+                    f"Loaded preprocessed graphs from {os.path.join(self.hparams.processed_dir, processed_file)}."
+                )
             else:
                 # preprocess data and save to disk
-                log.info(f"Preprocessing data from {self.hparams.data_dir} and saving to {self.hparams.processed_dir}.")
-                file_paths = [os.path.join(self.hparams.data_dir, f) for f in os.listdir(self.hparams.data_dir) if f.endswith(".h5ad")]
+                log.info(
+                    f"Preprocessing data from {self.hparams.data_dir} and saving to {self.hparams.processed_dir}."
+                )
+                file_paths = [
+                    os.path.join(self.hparams.data_dir, f)
+                    for f in os.listdir(self.hparams.data_dir)
+                    if f.endswith(".h5ad")
+                ]
 
                 # preprocess samples and create graphs
                 samples = []
@@ -202,29 +209,34 @@ class SpatialOmicsDataModule(LightningDataModule):
                     samples.append(sample_name)
 
                     if "X_pca" in adata.obsm:
-                        log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
+                        log.info(
+                            f"Sample {sample_name} is already preprocessed. Skipping preprocessing."
+                        )
                     else:
                         preprocess_sample(
-                            adata, 
-                            min_cells=self.hparams.min_cells, 
-                            min_genes=self.hparams.min_genes, 
-                            n_pca_components=self.hparams.n_pca_components, 
+                            adata,
+                            min_cells=self.hparams.min_cells,
+                            min_genes=self.hparams.min_genes,
+                            n_pca_components=self.hparams.n_pca_components,
                             augmentation_mode=self.hparams.augmentation_mode,
                             lambda_param=self.hparams.lambda_param,
                             sigma_param=self.hparams.sigma_param,
                         )
-                    graph = create_graph(adata, 
-                                         sample_name=sample_name, 
-                                         method=self.hparams.graph_method, 
-                                         n_neighbors=self.hparams.n_neighbors
-                            )
+                    graph = create_graph(
+                        adata,
+                        sample_name=sample_name,
+                        method=self.hparams.graph_method,
+                        n_neighbors=self.hparams.n_neighbors,
+                    )
                     save_sample(adata, graph, self.hparams.processed_dir, sample_name)
                     del adata
                     del graph
                     gc.collect()
 
                 # save preprocessed graphs
-                self.dataset = SpatialOmicsDataset(samples=samples, graph_dir=self.hparams.processed_dir)
+                self.dataset = SpatialOmicsDataset(
+                    samples=samples, graph_dir=self.hparams.processed_dir
+                )
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
@@ -232,7 +244,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         self.train_dataset = self.dataset
         self.val_dataset = self.dataset
         self.test_dataset = self.dataset
-        
+
         """
         # use this split for train / val / test split
         # !!!!!!!!!!!!!!!!!!!! add validation and adapt to new DataSet implementation !!!!!!!!!!!!!!!!!!!!
@@ -309,7 +321,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
-    
+
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
         `trainer.test()`, and `trainer.predict()`.
@@ -333,7 +345,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
         pass
-    
+
 
 if __name__ == "__main__":
     _ = SpatialOmicsDataModule()

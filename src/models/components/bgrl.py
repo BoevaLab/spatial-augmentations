@@ -1,16 +1,16 @@
 """
 BGRL (Bootstrap Graph Representation Learning) Module.
 
-This module implements the BGRL architecture for self-supervised graph representation learning. 
-BGRL is designed to learn meaningful node embeddings by leveraging two networks: an online encoder 
-and a target encoder. The online encoder learns representations of the input graph, while the target 
-encoder provides stable targets for the online encoder to match. A projector is used to map the 
+This module implements the BGRL architecture for self-supervised graph representation learning.
+BGRL is designed to learn meaningful node embeddings by leveraging two networks: an online encoder
+and a target encoder. The online encoder learns representations of the input graph, while the target
+encoder provides stable targets for the online encoder to match. A projector is used to map the
 online encoder's output to a latent space for alignment with the target encoder.
 
 Key Components:
 ---------------
 - Online Encoder: Learns graph representations from the input data.
-- Target Encoder: Provides stable targets for the online encoder and is updated using a momentum-based 
+- Target Encoder: Provides stable targets for the online encoder and is updated using a momentum-based
   moving average of the online encoder's weights.
 - Projector: Maps the online encoder's output to a latent space for alignment with the target encoder.
 
@@ -26,7 +26,7 @@ Classes:
 
 Usage:
 ------
-The `BGRL` class can be used as part of a self-supervised learning pipeline for graph-based tasks. 
+The `BGRL` class can be used as part of a self-supervised learning pipeline for graph-based tasks.
 It requires an encoder and a projector as inputs, which can be customized based on the task.
 
 Example:
@@ -34,36 +34,38 @@ Example:
 >>> import torch
 >>> from bgrl import BGRL
 >>> from some_module import Encoder, Projector
->>> 
+>>>
 >>> # Initialize encoder and projector
 >>> encoder = Encoder(input_dim=128, hidden_dim=64)
 >>> projector = Projector(input_dim=64, output_dim=32)
->>> 
+>>>
 >>> # Initialize BGRL model
 >>> model = BGRL(encoder=encoder, projector=projector)
->>> 
+>>>
 >>> # Example input graphs
 >>> online_x = torch.randn(100, 128)  # 100 nodes with 128 features
 >>> target_x = torch.randn(100, 128)
->>> 
+>>>
 >>> # Forward pass
 >>> online_q, target_y = model(online_x, target_x)
 >>> print(online_q.shape, target_y.shape)  # Output: torch.Size([100, 32]) torch.Size([100, 32])
 """
 
 import copy
+from typing import Optional, Tuple
+
 import torch
 from torch import nn
-from typing import Tuple, Optional
+
 
 class BGRL(nn.Module):
     """
     BGRL (Bootstrap Graph Representation Learning) architecture for graph representation learning.
 
-    This model is designed for self-supervised learning on graph data. It consists of an online 
-    encoder, a target encoder, and a projector. The online encoder learns representations of the 
-    input graph, while the target encoder provides stable targets for the online encoder to match. 
-    The projector maps the online encoder's output to a space where it can be compared to the target 
+    This model is designed for self-supervised learning on graph data. It consists of an online
+    encoder, a target encoder, and a projector. The online encoder learns representations of the
+    input graph, while the target encoder provides stable targets for the online encoder to match.
+    The projector maps the online encoder's output to a space where it can be compared to the target
     encoder's output.
 
     Parameters:
@@ -74,15 +76,11 @@ class BGRL(nn.Module):
         Projector network used to map the online encoder's output to a latent space.
     """
 
-    def __init__(
-        self,
-        encoder: torch.nn.Module,
-        projector: torch.nn.Module
-    ) -> None:
+    def __init__(self, encoder: torch.nn.Module, projector: torch.nn.Module) -> None:
         """
         Initialize the BGRL model.
 
-        This method sets up the online encoder, target encoder, and projector. The target encoder 
+        This method sets up the online encoder, target encoder, and projector. The target encoder
         is a copy of the online encoder, with its weights reinitialized and gradients disabled.
 
         Parameters:
@@ -108,7 +106,7 @@ class BGRL(nn.Module):
         """
         Get the trainable parameters of the model.
 
-        This method returns the parameters of the online encoder and projector, which are the 
+        This method returns the parameters of the online encoder and projector, which are the
         components of the model that are updated during training.
 
         Returns:
@@ -123,7 +121,7 @@ class BGRL(nn.Module):
         """
         Update the target network using a momentum-based moving average.
 
-        This method updates the weights of the target encoder by blending its current weights with 
+        This method updates the weights of the target encoder by blending its current weights with
         the weights of the online encoder. The blending is controlled by the momentum parameter.
 
         Parameters:
@@ -137,25 +135,27 @@ class BGRL(nn.Module):
             If the momentum value is not in the range [0.0, 1.0].
         """
         assert 0.0 <= mm <= 1.0, "Momentum needs to be between 0.0 and 1.0, got %.5f" % mm
-        for param_q, param_k in zip(self.online_encoder.parameters(), self.target_encoder.parameters()):
-            param_k.data.mul_(mm).add_(param_q.data, alpha=1. - mm)
+        for param_q, param_k in zip(
+            self.online_encoder.parameters(), self.target_encoder.parameters()
+        ):
+            param_k.data.mul_(mm).add_(param_q.data, alpha=1.0 - mm)
 
     def forward(
-        self, 
+        self,
         online_x: torch.Tensor,
         online_edge_index: torch.Tensor,
         online_edge_weight: torch.Tensor,
         target_x: torch.Tensor,
         target_edge_index: torch.Tensor,
-        target_edge_weight: torch.Tensor
+        target_edge_weight: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the BGRL model.
 
-        This method processes two views of the input graph through the online and target networks. 
-        The online encoder takes the node features, edge indices, and optional edge weights of the 
-        input graph and generates embeddings. These embeddings are passed through the projector to 
-        produce predictions. The target encoder processes the second view of the graph to generate 
+        This method processes two views of the input graph through the online and target networks.
+        The online encoder takes the node features, edge indices, and optional edge weights of the
+        input graph and generates embeddings. These embeddings are passed through the projector to
+        produce predictions. The target encoder processes the second view of the graph to generate
         stable target embeddings.
 
         Parameters:
@@ -186,10 +186,12 @@ class BGRL(nn.Module):
 
         # forward target network
         with torch.no_grad():
-            target_y = self.target_encoder(target_x, target_edge_index, target_edge_weight).detach()
-        
+            target_y = self.target_encoder(
+                target_x, target_edge_index, target_edge_weight
+            ).detach()
+
         return online_q, target_y
-    
+
 
 if __name__ == "__main__":
     _ = BGRL()

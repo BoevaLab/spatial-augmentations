@@ -16,11 +16,12 @@ Functions:
 - get_graph_augmentation: Creates a composed graph augmentation pipeline based on the specified method and parameters.
 """
 
+from copy import deepcopy
+
 import numpy as np
 import torch
-from torch_geometric.utils import dropout_edge
-from copy import deepcopy
 from torch_geometric.transforms import Compose
+from torch_geometric.utils import dropout_edge
 
 
 class DropFeatures:
@@ -49,7 +50,7 @@ class DropFeatures:
     """
 
     def __init__(self, p, cell_type_feat=None, unassigned_value=0):
-        assert 0. < p < 1., 'Dropout probability has to be between 0 and 1, but got %.2f' % p
+        assert 0.0 < p < 1.0, "Dropout probability has to be between 0 and 1, but got %.2f" % p
         self.p = p
         self.cell_type_feat = cell_type_feat
         self.unassigned_value = unassigned_value
@@ -69,7 +70,10 @@ class DropFeatures:
             The transformed graph data with some features dropped.
         """
         # Create a random dropout mask
-        drop_mask = torch.empty(data.x.size(), dtype=torch.float32, device=data.x.device).uniform_(0, 1) < self.p
+        drop_mask = (
+            torch.empty(data.x.size(), dtype=torch.float32, device=data.x.device).uniform_(0, 1)
+            < self.p
+        )
 
         # If a specific feature index is provided, handle it separately
         if self.cell_type_feat is not None:
@@ -91,9 +95,10 @@ class DropFeatures:
         str
             A string describing the transformation and its parameters.
         """
-        return '{}(p={}, cell_type_feat={}, unassigned_value={})'.format(
+        return "{}(p={}, cell_type_feat={}, unassigned_value={})".format(
             self.__class__.__name__, self.p, self.cell_type_feat, self.unassigned_value
         )
+
 
 class DropEdges:
     """
@@ -118,7 +123,7 @@ class DropEdges:
     """
 
     def __init__(self, p, force_undirected=False):
-        assert 0. < p < 1., 'Dropout probability has to be between 0 and 1, but got %.2f' % p
+        assert 0.0 < p < 1.0, "Dropout probability has to be between 0 and 1, but got %.2f" % p
         self.p = p
         self.force_undirected = force_undirected
 
@@ -150,7 +155,10 @@ class DropEdges:
         str
             A string describing the transformation and its parameters.
         """
-        return '{}(p={}, force_undirected={})'.format(self.__class__.__name__, self.p, self.force_undirected)
+        return "{}(p={}, force_undirected={})".format(
+            self.__class__.__name__, self.p, self.force_undirected
+        )
+
 
 class PseudoBatchEffect:
     def __init__(self, lambda_param: float, sigma: float):
@@ -236,7 +244,7 @@ class DropImportance:
     """
 
     def __init__(self, mu, p_lambda):
-        assert 0. < p_lambda <= 1., 'p_lambda must be between 0 and 1, but got %.2f' % p_lambda
+        assert 0.0 < p_lambda <= 1.0, "p_lambda must be between 0 and 1, but got %.2f" % p_lambda
         self.mu = mu
         self.p_lambda = p_lambda
 
@@ -261,25 +269,37 @@ class DropImportance:
         # normalize the log degree centrality
         max_log_degree = log_degree.max()
         avg_log_degree = log_degree.mean()
-        node_importance = (log_degree - avg_log_degree) / (max_log_degree - avg_log_degree + 1e-8)  # avoid division by zero
+        node_importance = (log_degree - avg_log_degree) / (
+            max_log_degree - avg_log_degree + 1e-8
+        )  # avoid division by zero
         node_importance = torch.clamp(node_importance, min=0)  # ensure non-negative importance
 
         # define node sampling probability and create dropout mask
-        node_sampling_prob = torch.min((1 - node_importance) * self.mu, torch.tensor(self.p_lambda, device=node_importance.device))
+        node_sampling_prob = torch.min(
+            (1 - node_importance) * self.mu,
+            torch.tensor(self.p_lambda, device=node_importance.device),
+        )
         node_drop_mask = torch.rand_like(data.x[:, 0]) < node_sampling_prob
         data.x[node_drop_mask] = 0
 
         # calculate edge importance as the mean of the importance of the two connected nodes
-        edge_importance = (node_importance[data.edge_index[0]] + node_importance[data.edge_index[1]]) / 2
+        edge_importance = (
+            node_importance[data.edge_index[0]] + node_importance[data.edge_index[1]]
+        ) / 2
 
         # normalize edge importance
         max_edge_importance = edge_importance.max()
         avg_edge_importance = edge_importance.mean()
-        edge_importance = (edge_importance - avg_edge_importance) / (max_edge_importance - avg_edge_importance + 1e-8)
+        edge_importance = (edge_importance - avg_edge_importance) / (
+            max_edge_importance - avg_edge_importance + 1e-8
+        )
         edge_importance = torch.clamp(edge_importance, min=0)  # Ensure non-negative importance
 
-        # dfine edge sampling probability and create dropout mask
-        edge_sampling_prob = torch.min((1 - edge_importance) * self.mu, torch.tensor(self.p_lambda, device=edge_importance.device))
+        # define edge sampling probability and create dropout mask
+        edge_sampling_prob = torch.min(
+            (1 - edge_importance) * self.mu,
+            torch.tensor(self.p_lambda, device=edge_importance.device),
+        )
         edge_drop_mask = torch.rand_like(edge_sampling_prob) < edge_sampling_prob
         data.edge_index = data.edge_index[:, edge_drop_mask]
         data.edge_weight = data.edge_weight[edge_drop_mask]
@@ -295,7 +315,7 @@ class DropImportance:
         str
             A string describing the transformation and its parameters.
         """
-        return '{}(mu={}, p_lambda={})'.format(self.__class__.__name__, self.mu, self.p_lambda)
+        return f"{self.__class__.__name__}(mu={self.mu}, p_lambda={self.p_lambda})"
 
 
 def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_lambda):
@@ -328,24 +348,24 @@ def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_la
     ValueError
         If an unknown augmentation method is specified.
     """
-    if augmentation_mode == 'baseline':
+    if augmentation_mode == "baseline":
         transforms = list()
 
         # make copy of graph
         transforms.append(deepcopy)
 
         # drop edges
-        if drop_edge_p > 0.:
+        if drop_edge_p > 0.0:
             transforms.append(DropEdges(drop_edge_p))
 
         # drop features
-        if drop_feat_p > 0.:
+        if drop_feat_p > 0.0:
             transforms.append(DropFeatures(drop_feat_p))
 
         # return the composed transformation
         return Compose(transforms)
-    
-    elif augmentation_mode == 'advanced':
+
+    elif augmentation_mode == "advanced":
         transforms = list()
 
         # make copy of graph
@@ -356,6 +376,6 @@ def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_la
 
         # return the composed transformation
         return Compose(transforms)
-    
+
     else:
-        raise ValueError('Unknown augmentation method: {}'.format(augmentation_mode))
+        raise ValueError(f"Unknown augmentation method: {augmentation_mode}")
