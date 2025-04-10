@@ -1,9 +1,10 @@
+import rootutils
 import torch
 from torch_geometric.data import Data
-import rootutils
+
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-from src.utils.graph_augmentations import get_graph_augmentation
 from src.data.spatial_omics_datamodule import SpatialOmicsDataModule
+from src.utils.graph_augmentations import get_graph_augmentation
 
 
 def test_get_graph_augmentation():
@@ -14,7 +15,9 @@ def test_get_graph_augmentation():
 
     # Mock batch input (adjust based on your actual batch structure)
     # Initialize the SpatialOmicsDataModule
-    data_module = SpatialOmicsDataModule(data_dir="data/domain/raw", processed_dir="data/domain/processed")
+    data_module = SpatialOmicsDataModule(
+        data_dir="data/domain/raw", processed_dir="data/domain/processed"
+    )
     data_module.setup()
 
     # Get a batch from the test dataloader

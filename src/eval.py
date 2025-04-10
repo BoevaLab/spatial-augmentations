@@ -1,7 +1,7 @@
 """
 Evaluation Script for Spatial Omics Models.
 
-This script handles the evaluation of pre-trained models using PyTorch Lightning. It leverages Hydra for configuration 
+This script handles the evaluation of pre-trained models using PyTorch Lightning. It leverages Hydra for configuration
 management and supports features such as logging, hyperparameter tracking, and flexible checkpoint loading.
 
 Main Features:
@@ -32,12 +32,12 @@ Functions:
 - main: Entry point for the script, integrates Hydra for configuration management.
 """
 
+import sys
 from typing import Any, Dict, List, Tuple
 
 import hydra
-import sys
-import rootutils
 import lightning as L
+import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -75,7 +75,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
-    
+
     assert cfg.ckpt_path
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
