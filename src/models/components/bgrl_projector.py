@@ -49,7 +49,7 @@ class BGRLProjector(nn.Module):
         A sequential container of layers, including two linear layers and a PReLU activation.
     """
 
-    def __init__(self, input_size: int, output_size: int, hidden_size: int = 64) -> None:
+    def __init__(self, input_size: int, output_size: int, hidden_size: int) -> None:
         """
         Initialize the `BGRLProjector` module.
 
@@ -60,7 +60,7 @@ class BGRLProjector(nn.Module):
         output_size : int
             The dimensionality of the output embeddings.
         hidden_size : int, optional
-            The dimensionality of the hidden layer. Default is 64.
+            The dimensionality of the hidden layer.
         """
         super().__init__()
 

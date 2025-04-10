@@ -64,10 +64,10 @@ class TwoLayerGCN(nn.Module):
 
     def __init__(
         self,
-        input_size: int = 50,
-        hidden_size: int = 32,
-        output_size: int = 16,
-        dropout: float = 0.5,
+        input_size: int,
+        hidden_size: int,
+        output_size: int,
+        dropout: float,
     ) -> None:
         """
         Initialize a `TwoLayerGCN` module.
@@ -75,13 +75,13 @@ class TwoLayerGCN(nn.Module):
         Parameters:
         ----------
         input_size : int, optional
-            The number of input node features. Default is 50.
+            The number of input node features.
         hidden_size : int, optional
-            The number of output node features of the first convolutional layer. Default is 32.
+            The number of output node features of the first convolutional layer.
         output_size : int, optional
-            The number of output node features of the final convolutional layer. Default is 16.
+            The number of output node features of the final convolutional layer.
         dropout : float, optional
-            The dropout rate applied between the two convolutional layers. Default is 0.5.
+            The dropout rate applied between the two convolutional layers.
         """
         super().__init__()
 
