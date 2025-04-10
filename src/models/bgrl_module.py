@@ -16,9 +16,8 @@ from torchmetrics.clustering import (
 
 from src.utils.clustering_utils import set_leiden_resolution
 from src.utils.graph_augmentations import get_graph_augmentation
-from src.utils.schedulers import CosineDecayScheduler
+from src.utils.momentum_scheduler import MomentumScheduler
 
-# TODO: add CosineSimilarityScheduler as lr and mm scheduler (including warmup steps and so on)
 # TODO: file path to data dir in test step (make as config)
 
 
@@ -48,53 +47,60 @@ class BGRLLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        augmentation_mode: str = "baseline",
-        mm: int = 0.99,
-        spatial_regularization_strength: float = 0.0,
-        node_subset_sz: int = 5000,
-        drop_edge_p1: float = 0.1,
-        drop_edge_p2: float = 0.1,
-        drop_feat_p1: float = 0.1,
-        drop_feat_p2: float = 0.1,
-        mu: float = 0.2,
-        p_lambda: float = 0.5,
-        processed_dir: str = "data/domain/processed/",
+        augmentation_mode: str,
+        mm: int,
+        warmup_steps: int,
+        total_steps: int,
+        spatial_regularization_strength: float,
+        node_subset_sz: int,
+        drop_edge_p1: float,
+        drop_edge_p2: float,
+        drop_feat_p1: float,
+        drop_feat_p2: float,
+        mu: float,
+        p_lambda: float,
+        processed_dir: str,
     ) -> None:
         """
         Initialize the BGRLLitModule.
 
         Parameters:
         ----------
-        model : torch.nn.Module
-            The BGRL model to train.
+        net : torch.nn.Module
+            The BGRL model to train, which includes the online encoder, target encoder, and projector.
         optimizer : torch.optim.Optimizer
-            The optimizer to use for training.
+            The optimizer to use for training (e.g., Adam, AdamW).
         scheduler : torch.optim.lr_scheduler
-            The learning rate scheduler to use for training.
+            The learning rate scheduler to use for training (e.g., ReduceLROnPlateau, CosineAnnealingLR).
         compile : bool
-            Whether to use Torch's `torch.compile` for model compilation.
-        augmentation_mode : str, optional
-            The graph augmentation mode to use. Default is "baseline".
-        mm : float, optional
-            Momentum for the target network updates. Default is 0.99.
-        spatial_regularization_strength : float, optional
-            Strength of the spatial regularization term. Default is 0.0.
-        node_subset_sz : int, optional
-            Size of the node subset for spatial regularization. Default is 5000.
-        drop_edge_p1 : float, optional
-            Dropout probability for edges in the first view. Default is 0.0.
-        drop_edge_p2 : float, optional
-            Dropout probability for edges in the second view. Default is 0.0.
-        drop_feat_p1 : float, optional
-            Dropout probability for features in the first view. Default is 0.0.
-        drop_feat_p2 : float, optional
-            Dropout probability for features in the second view. Default is 0.0.
-        mu : float, optional
-            The parameter for the graph augmentation. Default is 0.2.
-        p_lambda : float, optional
-            The parameter for the graph augmentation. Default is 0.5.
-        num_iterations : int, optional
-            Total number of training iterations. Default is 1e5.
+            Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
+        augmentation_mode : str
+            The graph augmentation mode to use. Options are "baseline" or "advanced".
+        mm : float
+            Initial momentum for the moving average update of the target encoder. Default is 0.99.
+        warmup_steps : int
+            Number of warmup steps for the momentum scheduler. During this phase, the momentum increases
+            linearly from 0 to its maximum value.
+        total_steps : int
+            Total number of training steps (iterations). Used by the momentum scheduler to decay momentum.
+        spatial_regularization_strength : float
+            Strength of the spatial regularization term. If set to 0.0, spatial regularization is disabled.
+        node_subset_sz : int
+            Number of nodes to sample for accelerated spatial regularization when the graph is large.
+        drop_edge_p1 : float
+            Dropout probability for edges in the first augmented view of the graph.
+        drop_edge_p2 : float
+            Dropout probability for edges in the second augmented view of the graph.
+        drop_feat_p1 : float
+            Dropout probability for node features in the first augmented view of the graph.
+        drop_feat_p2 : float
+            Dropout probability for node features in the second augmented view of the graph.
+        mu : float
+            A hyperparameter for the graph augmentation process.
+        p_lambda : float
+            A hyperparameter for the graph augmentation process.
+        processed_dir : str
+            Directory where processed data is stored. Used during testing to load additional metadata.
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -107,6 +113,13 @@ class BGRLLitModule(LightningModule):
 
         # loss metrics (only calculated during training)
         self.train_loss = MeanMetric()
+
+        # initialize momentum scheduler
+        self.momentum_scheduler = MomentumScheduler(
+            base_momentum=1 - mm,
+            warmup_steps=warmup_steps,
+            total_steps=total_steps,
+        )
 
         # test metrics (only calculated during testing)
         self.test_nmi = NormalizedMutualInfoScore()
@@ -271,7 +284,9 @@ class BGRLLitModule(LightningModule):
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # update target network
-        self.net.update_target_network(self.hparams.mm)
+        current_step = self.trainer.global_step
+        mm = 1 - self.momentum_scheduler.get(current_step)
+        self.net.update_target_network(mm)
 
         return loss
 
