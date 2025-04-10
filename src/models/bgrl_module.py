@@ -16,7 +16,7 @@ from torchmetrics.clustering import (
 
 from src.utils.clustering_utils import set_leiden_resolution
 from src.utils.graph_augmentations import get_graph_augmentation
-from src.utils.momentum_scheduler import MomentumScheduler
+from src.utils.schedulers import MomentumScheduler, WarmupScheduler
 
 # TODO: file path to data dir in test step (make as config)
 
@@ -282,6 +282,8 @@ class BGRLLitModule(LightningModule):
         # log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
+        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log("train/lr", current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
         # update target network
         current_step = self.trainer.global_step
@@ -428,13 +430,19 @@ class BGRLLitModule(LightningModule):
         """
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            base_lr = optimizer.param_groups[0]["lr"]
+            after_scheduler = self.hparams.scheduler(optimizer=optimizer)
+            scheduler = WarmupScheduler(
+                optimizer=optimizer,
+                base_lr=base_lr,
+                warmup_steps=self.hparams.warmup_steps,
+                after_scheduler=after_scheduler,
+            )
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "train/loss",
-                    "interval": "epoch",
+                    "interval": "step",
                     "frequency": 1,
                 },
             }
