@@ -17,8 +17,8 @@ net:
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 0.005
-  weight_decay: 1e-4
+  lr: 0.02
+  weight_decay: 0.0
 
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
