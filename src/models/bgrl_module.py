@@ -101,19 +101,9 @@ class BGRLLitModule(LightningModule):
 
         # initialize the BGRL model
         self.net = net
-        self.augmentation_mode = augmentation_mode
 
         # loss function
         self.criterion = self.cosine_similarity_loss
-
-        # momentum for the target network updates
-        self.mm = mm
-
-        # dropout probabilities for graph augmentation
-        self.drop_edge_p1 = drop_edge_p1
-        self.drop_edge_p2 = drop_edge_p2
-        self.drop_feat_p1 = drop_feat_p1
-        self.drop_feat_p2 = drop_feat_p2
 
         # loss metrics (only calculated during training)
         self.train_loss = MeanMetric()
@@ -209,16 +199,16 @@ class BGRLLitModule(LightningModule):
             The training loss for the batch.
         """
         transform1 = get_graph_augmentation(
-            self.augmentation_mode,
-            self.drop_edge_p1,
-            self.drop_feat_p1,
+            self.hparams.augmentation_mode,
+            self.hparams.drop_edge_p1,
+            self.hparams.drop_feat_p1,
             self.hparams.mu,
             self.hparams.p_lambda,
         )
         transform2 = get_graph_augmentation(
-            self.augmentation_mode,
-            self.drop_edge_p2,
-            self.drop_feat_p2,
+            self.hparams.augmentation_mode,
+            self.hparams.drop_edge_p2,
+            self.hparams.drop_feat_p2,
             self.hparams.mu,
             self.hparams.p_lambda,
         )
@@ -281,7 +271,7 @@ class BGRLLitModule(LightningModule):
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # update target network
-        self.net.update_target_network(self.mm)
+        self.net.update_target_network(self.hparams.mm)
 
         return loss
 
