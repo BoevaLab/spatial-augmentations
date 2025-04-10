@@ -240,36 +240,17 @@ class SpatialOmicsDataModule(LightningDataModule):
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
-        # use this "split" for loocv and training / testing without split
+        # keep all data for training since no labels are used during training
+        # self.train_dataset = self.dataset
+
+        # split data into validation (40) and test (60) sets (here, labels are used)
+        # val_size = int(0.4 * len(self.dataset))
+        # test_size = len(self.dataset) - val_size
+        # self.val_dataset, self.test_dataset = random_split(self.dataset, [val_size, test_size])
+
         self.train_dataset = self.dataset
         self.val_dataset = self.dataset
         self.test_dataset = self.dataset
-
-        """
-        # use this split for train / val / test split
-        # !!!!!!!!!!!!!!!!!!!! add validation and adapt to new DataSet implementation !!!!!!!!!!!!!!!!!!!!
-        # split the dataset into training and testing subsets
-        # group samples by class
-        merfish_samples = [graph for graph in self.graphs if graph.sample_name.startswith("MERFISH")]
-        baristaseq_samples = [graph for graph in self.graphs if graph.sample_name.startswith("BaristaSeq")]
-        starmap_samples = [graph for graph in self.graphs if graph.sample_name.startswith("STARmap")]
-        zhuang_samples = [graph for graph in self.graphs if graph.sample_name.startswith("Zhuang")]
-
-        # hold out one sample from each class for testing
-        test_samples = [
-            merfish_samples.pop(1),     # hold out MERFISH sample
-            baristaseq_samples.pop(0),  # hold out BaristaSeq sample
-            starmap_samples.pop(0),     # hold out STARmap sample
-            zhuang_samples.pop(0),      # hold out Zhuang sample
-        ]
-
-        # combine the remaining samples for training
-        train_samples = merfish_samples + baristaseq_samples + starmap_samples
-
-        # create train and test datasets
-        self.train_dataset = SpatialOmicsDataset({graph.sample_name: graph for graph in train_samples})
-        self.test_dataset = SpatialOmicsDataset({graph.sample_name: graph for graph in test_samples})
-        """
 
     def train_dataloader(self) -> DataLoader:
         """
