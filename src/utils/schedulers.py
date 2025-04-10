@@ -75,12 +75,10 @@ class MomentumScheduler:
             The total number of steps for the scheduler.
         """
         self.base_momentum = base_momentum
-=======
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
 
-
-class CosineDecayScheduler:
-    def __init__(self, max_val, warmup_steps, total_steps):
-        self.max_val = max_val
+    def get(self, step):
         """
         Get the momentum value for a given step.
 
@@ -99,11 +97,6 @@ class CosineDecayScheduler:
         elif self.warmup_steps <= step <= self.total_steps:
             return (
                 self.base_momentum
-        if step < self.warmup_steps:
-            return self.max_val * step / self.warmup_steps
-        elif self.warmup_steps <= step <= self.total_steps:
-            return (
-                self.max_val
                 * (
                     1
                     + np.cos(
