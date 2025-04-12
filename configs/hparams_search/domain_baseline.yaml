@@ -8,7 +8,7 @@ defaults:
 
 # choose metric which will be optimized by Optuna
 # make sure this is the correct name of some metric logged in lightning module!
-optimized_metric: "test/nmi_mean"
+optimized_metric: "val/nmi_mean"
 
 # here we define Optuna hyperparameter search
 # it optimizes for value returned from function with @hydra.main decorator
@@ -45,16 +45,21 @@ hydra:
 
     # define hyperparameter search space
     params:
-      model.optimizer.lr: interval(0.0001, 0.1)
-      model.optimizer.weight_decay: interval(0.0, 0.1)
-      data.n_neighbors: interval(10, 30)
       data.min_cells: interval(2, 20)
-      data.min_genes: choice(2, 20)
+      data.min_genes: interval(2, 20)
+      data.n_neighbors: interval(2, 20)
+
       model.net.encoder.hidden_size: choice(16, 32, 64)
+      model.net.encoder.output_size: choice(8, 16, 32)
       model.net.encoder.dropout: interval(0.1, 0.5)
       model.net.projector.hidden_size: choice(16, 32, 64)
+      model.optimizer.lr: interval(0.0001, 0.1)
+      model.optimizer.weight_decay: interval(0.0, 0.1)
+      model.scheduler.eta_min: interval(1e-5, 1e-2)
       model.mm: interval(0.9, 0.99)
+      model.warmup_steps: choice(100, 200)
       model.drop_edge_p1: interval(0.0, 0.5)
       model.drop_edge_p2: interval(0.0, 0.5)
       model.drop_feat_p1: interval(0.0, 0.5)
       model.drop_feat_p2: interval(0.0, 0.5)
+      model.spatial_regularization_strength: interval(0.0, 0.8)

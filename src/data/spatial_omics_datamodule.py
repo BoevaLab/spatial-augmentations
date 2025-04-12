@@ -70,54 +70,54 @@ class SpatialOmicsDataModule(LightningDataModule):
 
     def __init__(
         self,
-        data_dir: str = "data/domain/raw/",
-        processed_dir: str = "data/domain/processed/",
-        batch_size: int = 1,
-        num_workers: int = 0,
-        pin_memory: bool = False,
-        min_cells: int = 3,
-        min_genes: int = 3,
-        augmentation_mode: str = "baseline",
-        lambda_param: float = 0.1,
-        sigma_param: float = 0.1,
-        n_pca_components: int = 50,
-        graph_method: str = "knn",
-        n_neighbors: int = 10,
-        redo_preprocess: bool = False,
+        data_dir: str,
+        processed_dir: str,
+        batch_size: int,
+        num_workers: int,
+        pin_memory: bool,
+        min_cells: int,
+        min_genes: int,
+        augmentation_mode: str,
+        lambda_param: float,
+        sigma_param: float,
+        n_pca_components: int,
+        graph_method: str,
+        n_neighbors: int,
+        redo_preprocess: bool,
     ) -> None:
         """
         Initialize the SpatialOmicsDataModule.
 
         Parameters:
         -----------
-        data_dir : str, optional
-            Directory containing raw spatial omics data files. Default is "data/domain/raw/".
-        processed_dir : str, optional
-            Directory to save/load preprocessed graphs. Default is "data/domain/processed/".
-        batch_size : int, optional
-            Batch size for dataloaders. Default is 1.
-        num_workers : int, optional
-            Number of workers for data loading. Default is 0.
-        pin_memory : bool, optional
-            Whether to pin memory for DataLoader. Default is False.
-        min_cells : int, optional
-            Minimum number of cells required for preprocessing. Default is 3.
-        min_genes : int, optional
-            Minimum number of genes required for preprocessing. Default is 3.
-        augmentation_mode : str, optional
-            Augmentation mode for preprocessing. Default is "baseline".
-        lambda_param : float, optional
-            Lambda parameter for pseudo batch effect. Default is 0.1.
-        sigma_param : float, optional
-            Sigma parameter for pseudo batch effect. Default is 0.1.
-        n_pca_components : int, optional
-            Number of PCA components for dimensionality reduction. Default is 50.
-        graph_method : str, optional
-            Method for graph construction ("knn" or "pairwise"). Default is "knn".
-        n_neighbors : int, optional
-            Number of neighbors for k-NN graph construction. Default is 10.
-        redo_preprocess : bool, optional
-            Whether to redo preprocessing even if preprocessed data exists. Default is False.
+        data_dir : str
+            Directory containing raw spatial omics data files.
+        processed_dir : str
+            Directory to save/load preprocessed graphs.
+        batch_size : int
+            Batch size for dataloaders.
+        num_workers : int
+            Number of workers for data loading.
+        pin_memory : bool
+            Whether to pin memory for DataLoader.
+        min_cells : int
+            Minimum number of cells required for preprocessing.
+        min_genes : int
+            Minimum number of genes required for preprocessing.
+        augmentation_mode : str
+            Augmentation mode for preprocessing.
+        lambda_param : float
+            Lambda parameter for pseudo batch effect.
+        sigma_param : float
+            Sigma parameter for pseudo batch effect.
+        n_pca_components : int
+            Number of PCA components for dimensionality reduction.
+        graph_method : str
+            Method for graph construction ("knn" or "pairwise").
+        n_neighbors : int
+            Number of neighbors for k-NN graph construction.
+        redo_preprocess : bool
+            Whether to redo preprocessing even if preprocessed data exists.
         """
         super().__init__()
         self.save_hyperparameters(logger=False)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=domain_train_baseline
+#SBATCH --job-name=domain123_train_test_baseline
 #SBATCH --output=output.txt
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
@@ -12,7 +12,4 @@
 source "$HOME/.bashrc"
 conda activate augmentation
 
-srun python src/train.py tags="[baseline, train]" \
-    data.batch_size=4 \
-    data.num_workers=4 \
-    trainer=gpu \
+srun python src/train.py experiment=domain123_train_test_baseline
