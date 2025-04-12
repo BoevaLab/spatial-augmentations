@@ -21,7 +21,7 @@ from src.utils.schedulers import MomentumScheduler, WarmupScheduler
 # TODO: file path to data dir in test step (make as config)
 
 
-class BGRLLitModule(LightningModule):
+class BGRLDomainLitModule(LightningModule):
     """
     A PyTorch Lightning module for training the BGRL (Bootstrap Graph Representation Learning) model.
 
@@ -62,7 +62,7 @@ class BGRLLitModule(LightningModule):
         processed_dir: str,
     ) -> None:
         """
-        Initialize the BGRLLitModule.
+        Initialize the BGRLDomainLitModule.
 
         Parameters:
         ----------
@@ -613,4 +613,4 @@ class BGRLLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = BGRLLitModule(None, None, None, None)
+    _ = BGRLDomainLitModule(None, None, None, None)
