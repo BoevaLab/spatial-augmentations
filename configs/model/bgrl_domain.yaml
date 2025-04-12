@@ -1,4 +1,4 @@
-_target_: src.models.bgrl_module.BGRLDomainLitModule
+_target_: src.models.bgrl_domain_module.BGRLDomainLitModule
 
 net:
   _target_: src.models.components.bgrl.BGRL
