@@ -21,7 +21,7 @@ from src.utils.schedulers import MomentumScheduler, WarmupScheduler
 # TODO: file path to data dir in test step (make as config)
 
 
-class BGRLLitModule(LightningModule):
+class BGRLDomainLitModule(LightningModule):
     """
     A PyTorch Lightning module for training the BGRL (Bootstrap Graph Representation Learning) model.
 
@@ -62,7 +62,7 @@ class BGRLLitModule(LightningModule):
         processed_dir: str,
     ) -> None:
         """
-        Initialize the BGRLLitModule.
+        Initialize the BGRLDomainLitModule.
 
         Parameters:
         ----------
@@ -120,6 +120,13 @@ class BGRLLitModule(LightningModule):
             warmup_steps=warmup_steps,
             total_steps=total_steps,
         )
+
+        # validation metrics
+        self.val_nmi = NormalizedMutualInfoScore()
+        self.val_ars = AdjustedRandScore()
+        self.val_homogeneity = HomogeneityScore()
+        self.val_completeness = CompletenessScore()
+        self.val_outputs = []
 
         # test metrics (only calculated during testing)
         self.test_nmi = NormalizedMutualInfoScore()
@@ -292,77 +299,102 @@ class BGRLLitModule(LightningModule):
 
         return loss
 
-    def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> Dict[str, torch.Tensor]:
-        # run online encoder
-        with torch.no_grad():
-            node_embeddings = self.net.online_encoder(batch.x, batch.edge_index, batch.edge_weight)
+    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+        """
+        Perform a single test step.
 
-        # load adata object
-        sample_name = batch.sample_name[0]
-        file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
-        adata = sc.read_h5ad(file_path)
+        This method evaluates the model on a batch of test data by:
+        - Generating node embeddings using the online encoder.
+        - Loading the corresponding AnnData object for the batch.
+        - Appending the generated embeddings to the AnnData object.
+        - Performing Leiden clustering on the embeddings.
+        - Comparing the clustering results with ground truth labels using various metrics.
 
-        # append cell embeddings to adata object
-        cell_embeddings_np = node_embeddings.cpu().numpy()
-        adata.obsm["cell_embeddings"] = cell_embeddings_np
+        Parameters:
+        ----------
+        batch : Tuple[torch.Tensor, torch.Tensor]
+            A batch of input data containing node features, edge indices, edge weights, and metadata.
+        batch_idx : int
+            The index of the current batch.
 
-        # get ground truth labels
-        domain_name = None
-        if sample_name.startswith("MERFISH_small"):
-            domain_name = "domain"
-        elif sample_name.startswith("STARmap"):
-            domain_name = "region"
-        elif sample_name.startswith("BaristaSeq"):
-            domain_name = "layer"
-        elif sample_name.startswith("Zhuang"):
-            domain_name = "parcellation_division_color"
-        ground_truth_labels = adata.obs[domain_name]
+        Returns:
+        -------
+        None
+            Logs the calculated metrics for the batch, including:
+            - Normalized Mutual Information (NMI)
+            - Adjusted Rand Index (ARI)
+            - Homogeneity Score
+            - Completeness Score
+        """
+        # process each sample in the batch
+        graphs = batch.to_data_list()
+        for graph in graphs:
 
-        # determine resolution based on number of ground truth labels
-        sc.pp.neighbors(adata, use_rep="cell_embeddings")
-        resolution = set_leiden_resolution(
-            adata, target_num_clusters=ground_truth_labels.nunique()
-        )
-        # perform leiden clustering
-        sc.tl.leiden(adata, resolution=resolution)
-        leiden_labels = adata.obs["leiden"]
+            # run online encoder
+            with torch.no_grad():
+                node_embeddings = self.net.online_encoder(
+                    graph.x, graph.edge_index, graph.edge_weight
+                )
 
-        # convert ground truth labels and leiden labels to PyTorch tensors
-        ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
-        ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
-        leiden_labels = adata.obs["leiden"].astype("category").cat.codes
-        leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+            # load the corresponding AnnData object
+            sample_name = graph.sample_name
+            file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
+            adata = sc.read_h5ad(file_path)
 
-        # calculate metrics
-        nmi = self.test_nmi(ground_truth_labels, leiden_labels)
-        ari = self.test_ars(ground_truth_labels, leiden_labels)
-        homogeneity = self.test_homogeneity(ground_truth_labels, leiden_labels)
-        completeness = self.test_completeness(ground_truth_labels, leiden_labels)
+            # append cell embeddings to adata object
+            cell_embeddings_np = node_embeddings.cpu().numpy()
+            adata.obsm["cell_embeddings"] = cell_embeddings_np
 
-        # log metrics for each graph
-        self.log("test/batch_idx", batch_idx, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("test/nmi", nmi, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("test/ari", ari, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("test/homogeneity", homogeneity, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("test/completeness", completeness, on_step=True, on_epoch=False, prog_bar=False)
+            # get ground truth labels
+            domain_name = None
+            if sample_name.startswith("MERFISH_small"):
+                domain_name = "domain"
+            elif sample_name.startswith("STARmap"):
+                domain_name = "region"
+            elif sample_name.startswith("BaristaSeq"):
+                domain_name = "layer"
+            elif sample_name.startswith("Zhuang"):
+                domain_name = "parcellation_division_color"
+            ground_truth_labels = adata.obs[domain_name]
 
-        # save metrics for aggregation
-        self.test_outputs.append(
-            {
-                "sample_name": sample_name,
-                "nmi": nmi,
-                "ari": ari,
-                "homogeneity": homogeneity,
-                "completeness": completeness,
-            }
-        )
+            # determine resolution based on number of ground truth labels
+            sc.pp.neighbors(adata, use_rep="cell_embeddings")
+            resolution = set_leiden_resolution(
+                adata, target_num_clusters=ground_truth_labels.nunique()
+            )
+            # perform leiden clustering
+            sc.tl.leiden(
+                adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False
+            )
+            leiden_labels = adata.obs["leiden"]
 
-        # save the updated adata file to the logs directory
-        # save_dir = os.path.join(self.logger.save_dir, "adata_files")
-        # os.makedirs(save_dir, exist_ok=True)
-        # adata.write_h5ad(os.path.join(save_dir, f"{sample_name}.h5ad"), compression="gzip")
+            # convert ground truth labels and leiden labels to PyTorch tensors
+            ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
+            ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
+            leiden_labels = adata.obs["leiden"].astype("category").cat.codes
+            leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+
+            # calculate metrics
+            nmi = self.test_nmi(ground_truth_labels, leiden_labels)
+            ari = self.test_ars(ground_truth_labels, leiden_labels)
+            homogeneity = self.test_homogeneity(ground_truth_labels, leiden_labels)
+            completeness = self.test_completeness(ground_truth_labels, leiden_labels)
+
+            # save metrics for aggregation in on_test_epoch_end()
+            self.test_outputs.append(
+                {
+                    "sample_name": sample_name,
+                    "nmi": nmi,
+                    "ari": ari,
+                    "homogeneity": homogeneity,
+                    "completeness": completeness,
+                }
+            )
+
+            # save the updated adata file to the logs directory
+            # save_dir = os.path.join(self.logger.save_dir, "adata_files")
+            # os.makedirs(save_dir, exist_ok=True)
+            # adata.write_h5ad(os.path.join(save_dir, f"{sample_name}.h5ad"), compression="gzip")
 
     def on_test_epoch_end(self) -> None:
         """
@@ -402,6 +434,137 @@ class BGRLLitModule(LightningModule):
 
         # clear the outputs for the next test run
         self.test_outputs.clear()
+
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+        """
+        Perform a single validation step.
+
+        This method evaluates the model on a batch of validation data by:
+        - Generating node embeddings using the online encoder.
+        - Loading the corresponding AnnData object for the batch.
+        - Appending the generated embeddings to the AnnData object.
+        - Performing Leiden clustering on the embeddings.
+        - Comparing the clustering results with ground truth labels using various metrics.
+
+        Parameters:
+        ----------
+        batch : Tuple[torch.Tensor, torch.Tensor]
+            A batch of input data containing node features, edge indices, edge weights, and metadata.
+        batch_idx : int
+            The index of the current batch.
+
+        Returns:
+        -------
+        None
+            Logs the calculated metrics for the batch, including:
+            - Normalized Mutual Information (NMI)
+            - Adjusted Rand Index (ARI)
+            - Homogeneity Score
+            - Completeness Score
+        """
+        # process each sample in the batch
+        graphs = batch.to_data_list()
+        for graph in graphs:
+
+            # run online encoder
+            with torch.no_grad():
+                node_embeddings = self.net.online_encoder(
+                    graph.x, graph.edge_index, graph.edge_weight
+                )
+
+            # load the corresponding AnnData object
+            sample_name = graph.sample_name
+            file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
+            adata = sc.read_h5ad(file_path)
+
+            # append cell embeddings to adata object
+            cell_embeddings_np = node_embeddings.cpu().numpy()
+            adata.obsm["cell_embeddings"] = cell_embeddings_np
+
+            # get ground truth labels
+            domain_name = None
+            if sample_name.startswith("MERFISH_small"):
+                domain_name = "domain"
+            elif sample_name.startswith("STARmap"):
+                domain_name = "region"
+            elif sample_name.startswith("BaristaSeq"):
+                domain_name = "layer"
+            elif sample_name.startswith("Zhuang"):
+                domain_name = "parcellation_division_color"
+            ground_truth_labels = adata.obs[domain_name]
+
+            # determine resolution based on number of ground truth labels
+            sc.pp.neighbors(adata, use_rep="cell_embeddings")
+            resolution = set_leiden_resolution(
+                adata, target_num_clusters=ground_truth_labels.nunique()
+            )
+            # perform leiden clustering
+            sc.tl.leiden(
+                adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False
+            )
+            leiden_labels = adata.obs["leiden"]
+
+            # convert ground truth labels and leiden labels to PyTorch tensors
+            ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
+            ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
+            leiden_labels = adata.obs["leiden"].astype("category").cat.codes
+            leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+
+            # calculate metrics
+            nmi = self.val_nmi(ground_truth_labels, leiden_labels)
+            ari = self.val_ars(ground_truth_labels, leiden_labels)
+            homogeneity = self.val_homogeneity(ground_truth_labels, leiden_labels)
+            completeness = self.val_completeness(ground_truth_labels, leiden_labels)
+
+            # save metrics for aggregation in on_validation_epoch_end()
+            self.val_outputs.append(
+                {
+                    "sample_name": sample_name,
+                    "nmi": nmi,
+                    "ari": ari,
+                    "homogeneity": homogeneity,
+                    "completeness": completeness,
+                }
+            )
+
+    def on_validation_epoch_end(self) -> None:
+        """
+        Aggregate metrics at the end of the validation epoch.
+        """
+        # get the logger's save directory
+        save_dir = self.logger.log_dir if hasattr(self.logger, "log_dir") else self.logger.save_dir
+        if save_dir is None:
+            raise ValueError("Logger does not have a valid save directory.")
+
+        # save graph-level metrics to a CSV file
+        file_path = os.path.join(save_dir, "val_results.csv")
+        with open(file_path, mode="w", newline="") as file:
+            writer = csv.DictWriter(
+                file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"]
+            )
+            writer.writeheader()
+            writer.writerows(self.val_outputs)
+
+        # extract all NMI and ARI scores
+        nmi_scores = torch.stack([x["nmi"] for x in self.val_outputs])
+        ari_scores = torch.stack([x["ari"] for x in self.val_outputs])
+        homogeneity_scores = torch.stack([x["homogeneity"] for x in self.val_outputs])
+        completeness_scores = torch.stack([x["completeness"] for x in self.val_outputs])
+
+        # compute mean scores
+        mean_nmi = nmi_scores.mean()
+        mean_ari = ari_scores.mean()
+        mean_homogeneity = homogeneity_scores.mean()
+        mean_completeness = completeness_scores.mean()
+
+        # log the mean scores
+        self.log("val/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
+        self.log("val/ari_mean", mean_ari, on_epoch=True, prog_bar=True)
+        self.log("val/homogeneity_mean", mean_homogeneity, on_epoch=True, prog_bar=True)
+        self.log("val/completeness_mean", mean_completeness, on_epoch=True, prog_bar=True)
+
+        # clear the outputs for the next validation run
+        self.val_outputs.clear()
 
     def setup(self, stage: str) -> None:
         """
@@ -450,4 +613,4 @@ class BGRLLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = BGRLLitModule(None, None, None, None)
+    _ = BGRLDomainLitModule(None, None, None, None)
