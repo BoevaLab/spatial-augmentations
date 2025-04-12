@@ -241,16 +241,12 @@ class SpatialOmicsDataModule(LightningDataModule):
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
         # keep all data for training since no labels are used during training
-        # self.train_dataset = self.dataset
+        self.train_dataset = self.dataset
 
         # split data into validation (40) and test (60) sets (here, labels are used)
-        # val_size = int(0.4 * len(self.dataset))
-        # test_size = len(self.dataset) - val_size
-        # self.val_dataset, self.test_dataset = random_split(self.dataset, [val_size, test_size])
-
-        self.train_dataset = self.dataset
-        self.val_dataset = self.dataset
-        self.test_dataset = self.dataset
+        val_size = int(0.4 * len(self.dataset))
+        test_size = len(self.dataset) - val_size
+        self.val_dataset, self.test_dataset = random_split(self.dataset, [val_size, test_size])
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -279,7 +275,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the validation dataset.
         """
         return DataLoader(
-            dataset=self.val_dataset,
+            dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
@@ -296,7 +292,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the test dataset.
         """
         return DataLoader(
-            dataset=self.test_dataset,
+            dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
