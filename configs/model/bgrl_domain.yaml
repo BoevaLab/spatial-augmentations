@@ -11,7 +11,7 @@ net:
   projector:
     _target_: src.models.components.bgrl_projector.BGRLProjector
     input_size: 16
-    output_size: 16
+    output_size: ${model.net.encoder.output_size}
     hidden_size: 32
 
 optimizer:
