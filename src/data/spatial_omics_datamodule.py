@@ -275,7 +275,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the validation dataset.
         """
         return DataLoader(
-            dataset=self.train_dataset,
+            dataset=self.val_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
@@ -292,7 +292,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             A PyTorch Geometric DataLoader for the test dataset.
         """
         return DataLoader(
-            dataset=self.train_dataset,
+            dataset=self.test_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
