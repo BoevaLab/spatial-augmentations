@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:rtx2080ti:1
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
-#SBATCH --time=1:00:00
+#SBATCH --time=00:15:00
 
 # shellcheck disable=SC1091
 source "$HOME/.bashrc"

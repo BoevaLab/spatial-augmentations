@@ -20,7 +20,7 @@ data:
   data_dir: ${paths.data_dir}domain/raw_7/
   processed_dir: ${paths.data_dir}domain/processed_7/
   batch_size: 32
-  num_workers: 8
+  num_workers: 4
   pin_memory: False
   min_cells: 3
   min_genes: 3

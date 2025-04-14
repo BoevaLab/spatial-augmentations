@@ -22,4 +22,4 @@ num_sanity_val_steps: 0
 
 # set True to to ensure deterministic results
 # makes training slower but gives more reproducibility than just setting seeds
-deterministic: False
+deterministic: True
