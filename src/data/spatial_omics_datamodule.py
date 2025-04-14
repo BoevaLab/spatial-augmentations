@@ -198,6 +198,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         else:
             preprocess_sample(
                 adata,
+                sample_name,
                 min_cells=self.hparams.min_cells,
                 min_genes=self.hparams.min_genes,
                 n_pca_components=self.hparams.n_pca_components,

@@ -4,7 +4,7 @@
 #SBATCH --output=domain7_train_test_baseline.txt
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=5:00:00
 
