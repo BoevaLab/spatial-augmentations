@@ -31,6 +31,7 @@ from typing import Any, Dict, Optional
 
 import scanpy as sc
 import torch
+from joblib import Parallel, delayed
 from lightning import LightningDataModule
 from torch.utils.data import random_split
 from torch_geometric.loader import DataLoader
@@ -154,6 +155,69 @@ class SpatialOmicsDataModule(LightningDataModule):
                 f"Data directory {self.hparams.data_dir} exists. Proceeding with preprocessing or loading the data."
             )
 
+    def process_sample(self, file_path: str) -> None:
+        """
+        Process a single spatial omics sample.
+
+        This function reads a spatial omics sample from an `.h5ad` file, applies preprocessing steps
+        (e.g., filtering, normalization, PCA, and augmentation), constructs a graph representation
+        of the sample, and saves the preprocessed data and graph to disk.
+
+        Parameters:
+        -----------
+        file_path : str
+            The path to the `.h5ad` file containing the raw spatial omics data for the sample.
+
+        Returns:
+        --------
+        str
+            The name of the processed sample (derived from the file name without the extension).
+
+        Side Effects:
+        -------------
+        - Saves the preprocessed AnnData object and its corresponding graph to the directory specified
+        in `self.hparams.processed_dir`.
+        - Frees memory by deleting intermediate objects and invoking garbage collection.
+
+        Notes:
+        ------
+        - If the sample has already been preprocessed (indicated by the presence of "X_pca" in
+        `adata.obsm`), preprocessing is skipped.
+        - The graph is constructed using the method and parameters specified in `self.hparams`.
+
+        Raises:
+        -------
+        FileNotFoundError
+            If the specified file does not exist.
+        """
+        adata = sc.read_h5ad(file_path)
+        sample_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        if "X_pca" in adata.obsm:
+            log.info(f"Sample {sample_name} is already preprocessed. Skipping preprocessing.")
+        else:
+            preprocess_sample(
+                adata,
+                min_cells=self.hparams.min_cells,
+                min_genes=self.hparams.min_genes,
+                n_pca_components=self.hparams.n_pca_components,
+                augmentation_mode=self.hparams.augmentation_mode,
+                lambda_param=self.hparams.lambda_param,
+                sigma_param=self.hparams.sigma_param,
+            )
+        graph = create_graph(
+            adata,
+            sample_name=sample_name,
+            method=self.hparams.graph_method,
+            n_neighbors=self.hparams.n_neighbors,
+        )
+        save_sample(adata, graph, self.hparams.processed_dir, sample_name)
+        del adata
+        del graph
+        gc.collect()
+
+        return sample_name
+
     def setup(self, stage: Optional[str] = None) -> None:
         """
         Load and preprocess spatial omics data.
@@ -201,38 +265,20 @@ class SpatialOmicsDataModule(LightningDataModule):
                     if f.endswith(".h5ad")
                 ]
 
-                # preprocess samples and create graphs
-                samples = []
-                for file_path in file_paths:
-                    adata = sc.read_h5ad(file_path)
-                    sample_name = os.path.splitext(os.path.basename(file_path))[0]
-                    samples.append(sample_name)
-
-                    if "X_pca" in adata.obsm:
-                        log.info(
-                            f"Sample {sample_name} is already preprocessed. Skipping preprocessing."
-                        )
-                    else:
-                        preprocess_sample(
-                            adata,
-                            min_cells=self.hparams.min_cells,
-                            min_genes=self.hparams.min_genes,
-                            n_pca_components=self.hparams.n_pca_components,
-                            augmentation_mode=self.hparams.augmentation_mode,
-                            lambda_param=self.hparams.lambda_param,
-                            sigma_param=self.hparams.sigma_param,
-                        )
-                    graph = create_graph(
-                        adata,
-                        sample_name=sample_name,
-                        method=self.hparams.graph_method,
-                        n_neighbors=self.hparams.n_neighbors,
+                # preprocess samples and create graphs (optionally in parallel)
+                if self.hparams.num_workers <= 1:
+                    log.info("Preprocessing samples in serial.")
+                    samples = []
+                    for file_path in file_paths:
+                        sample_name = self.process_sample(file_path)
+                        samples.append(sample_name)
+                else:
+                    log.info("Preprocessing samples in parallel.")
+                    # use joblib to parallelize the preprocessing
+                    samples = Parallel(n_jobs=self.hparams.num_workers)(
+                        delayed(function=self.process_sample)(file_path)
+                        for file_path in file_paths
                     )
-                    save_sample(adata, graph, self.hparams.processed_dir, sample_name)
-                    del adata
-                    del graph
-                    gc.collect()
-
                 # save preprocessed graphs
                 self.dataset = SpatialOmicsDataset(
                     samples=samples, graph_dir=self.hparams.processed_dir
@@ -261,6 +307,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
+            persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
         )
@@ -278,6 +325,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             dataset=self.val_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
+            persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
@@ -295,6 +343,7 @@ class SpatialOmicsDataModule(LightningDataModule):
             dataset=self.test_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
+            persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
