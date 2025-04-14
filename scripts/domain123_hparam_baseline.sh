@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=domain123_hparam_baseline
-#SBATCH --output=output.txt
+#SBATCH --output=domain123_hparam_baseline.txt
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
 #SBATCH --mem=64G
