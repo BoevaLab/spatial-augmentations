@@ -18,8 +18,6 @@ from src.utils.clustering_utils import set_leiden_resolution
 from src.utils.graph_augmentations import get_graph_augmentation
 from src.utils.schedulers import MomentumScheduler, WarmupScheduler
 
-# TODO: file path to data dir in test step (make as config)
-
 
 class BGRLDomainLitModule(LightningModule):
     """

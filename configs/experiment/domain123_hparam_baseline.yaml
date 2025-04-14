@@ -7,7 +7,6 @@ defaults:
   - override /data: spatial_omics
   - override /model: bgrl_domain
   - override /trainer: gpu
-  - override /hparams_search: domain_baseline
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
@@ -41,7 +40,7 @@ model:
       output_size: 16
       dropout: 0.5
     projector:
-      input_size: 16
+      input_size: ${model.net.encoder.output_size}
       output_size: ${model.net.encoder.output_size}
       hidden_size: 32
 
