@@ -109,6 +109,7 @@ def save_sample(adata: sc.AnnData, graph: Data, output_dir: str, sample_name: st
 
 def preprocess_sample(
     adata: sc.AnnData,
+    sample_name: str,
     min_cells: int,
     min_genes: int,
     n_pca_components: int,
@@ -124,6 +125,8 @@ def preprocess_sample(
     ----------
     adata : AnnData
         The AnnData object containing spatial and gene expression data.
+    sample_name : str
+        The name of the sample (used for domain labels).
     min_cells : int
         The minimum number of cells in which a gene must be expressed to retain the gene.
     min_genes : int
@@ -189,6 +192,18 @@ def preprocess_sample(
 
     # step 4: perform PCA with n_pca_components components
     sc.pp.pca(adata, n_comps=n_pca_components)
+
+    # step 5: make domain annotation based on sample name
+    domain_name = None
+    if sample_name.startswith("MERFISH_small"):
+        domain_name = "domain"
+    elif sample_name.startswith("STARmap"):
+        domain_name = "region"
+    elif sample_name.startswith("BaristaSeq"):
+        domain_name = "layer"
+    elif sample_name.startswith("Zhuang"):
+        domain_name = "parcellation_division"
+    adata.obs["domain_annotation"] = adata.obs[domain_name]
 
 
 def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:

@@ -344,16 +344,7 @@ class BGRLDomainLitModule(LightningModule):
             adata.obsm["cell_embeddings"] = cell_embeddings_np
 
             # get ground truth labels
-            domain_name = None
-            if sample_name.startswith("MERFISH_small"):
-                domain_name = "domain"
-            elif sample_name.startswith("STARmap"):
-                domain_name = "region"
-            elif sample_name.startswith("BaristaSeq"):
-                domain_name = "layer"
-            elif sample_name.startswith("Zhuang"):
-                domain_name = "parcellation_division_color"
-            ground_truth_labels = adata.obs[domain_name]
+            ground_truth_labels = adata.obs["domain_annotation"]
 
             # determine resolution based on number of ground truth labels
             sc.pp.neighbors(adata, use_rep="cell_embeddings")
@@ -367,7 +358,7 @@ class BGRLDomainLitModule(LightningModule):
             leiden_labels = adata.obs["leiden"]
 
             # convert ground truth labels and leiden labels to PyTorch tensors
-            ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
+            ground_truth_labels = ground_truth_labels.astype("category").cat.codes
             ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
             leiden_labels = adata.obs["leiden"].astype("category").cat.codes
             leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
@@ -480,16 +471,7 @@ class BGRLDomainLitModule(LightningModule):
             adata.obsm["cell_embeddings"] = cell_embeddings_np
 
             # get ground truth labels
-            domain_name = None
-            if sample_name.startswith("MERFISH_small"):
-                domain_name = "domain"
-            elif sample_name.startswith("STARmap"):
-                domain_name = "region"
-            elif sample_name.startswith("BaristaSeq"):
-                domain_name = "layer"
-            elif sample_name.startswith("Zhuang"):
-                domain_name = "parcellation_division_color"
-            ground_truth_labels = adata.obs[domain_name]
+            ground_truth_labels = adata.obs["domain_annotation"]
 
             # determine resolution based on number of ground truth labels
             sc.pp.neighbors(adata, use_rep="cell_embeddings")
@@ -503,7 +485,7 @@ class BGRLDomainLitModule(LightningModule):
             leiden_labels = adata.obs["leiden"]
 
             # convert ground truth labels and leiden labels to PyTorch tensors
-            ground_truth_labels = adata.obs[domain_name].astype("category").cat.codes
+            ground_truth_labels = ground_truth_labels.astype("category").cat.codes
             ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
             leiden_labels = adata.obs["leiden"].astype("category").cat.codes
             leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
