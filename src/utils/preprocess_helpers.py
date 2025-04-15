@@ -201,8 +201,10 @@ def preprocess_sample(
         domain_name = "region"
     elif sample_name.startswith("BaristaSeq"):
         domain_name = "layer"
+    elif sample_name.startswith("Xenium"):
+        domain_name = "region"
     elif sample_name.startswith("Zhuang"):
-        domain_name = "parcellation_division"
+        domain_name = "parcellation_substructure"
     adata.obs["domain_annotation"] = adata.obs[domain_name]
 
 
