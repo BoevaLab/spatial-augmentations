@@ -13,7 +13,6 @@ defaults:
 
 task_name: "domain123_train_test_baseline"
 tags: ["domain123", "train_test", "baseline"]
-seed: 02092000
 test: True
 
 data:
@@ -22,8 +21,8 @@ data:
   batch_size: 4
   num_workers: 0
   pin_memory: False
-  min_cells: 3
-  min_genes: 3
+  min_cells: 2
+  min_genes: 10
   augmentation_mode: "baseline"
   lambda_param: 0.1
   sigma_param: 0.1
@@ -52,7 +51,7 @@ model:
   scheduler:
     _partial_: true
     T_max: 2997
-    eta_min: 1e-5
+    eta_min: 1e-7
 
   compile: false # compile model for faster training with pytorch 2.0
   augmentation_mode: "baseline" # augmetation mode, either baseline or advanced

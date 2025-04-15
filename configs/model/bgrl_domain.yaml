@@ -40,3 +40,4 @@ drop_feat_p2: 0.3 # drop feature probability for second augmentation
 mu: 0.5 # hyperparameter for the graph augmentation
 p_lambda: 0.7 # hyperparameter for the graph augmentation
 processed_dir: ${paths.data_dir}domain/processed/ # directory for processed data
+seed: ${seed} # random seed

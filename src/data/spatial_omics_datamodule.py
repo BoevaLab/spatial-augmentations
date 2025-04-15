@@ -85,6 +85,7 @@ class SpatialOmicsDataModule(LightningDataModule):
         graph_method: str,
         n_neighbors: int,
         redo_preprocess: bool,
+        seed: int,
     ) -> None:
         """
         Initialize the SpatialOmicsDataModule.
@@ -119,6 +120,8 @@ class SpatialOmicsDataModule(LightningDataModule):
             Number of neighbors for k-NN graph construction.
         redo_preprocess : bool
             Whether to redo preprocessing even if preprocessed data exists.
+        seed : int
+            Random seed for reproducibility.
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -291,9 +294,12 @@ class SpatialOmicsDataModule(LightningDataModule):
         self.train_dataset = self.dataset
 
         # split data into validation (40) and test (60) sets (here, labels are used)
+        generator = torch.Generator().manual_seed(self.hparams.seed)
         val_size = int(0.4 * len(self.dataset))
         test_size = len(self.dataset) - val_size
-        self.val_dataset, self.test_dataset = random_split(self.dataset, [val_size, test_size])
+        self.val_dataset, self.test_dataset = random_split(
+            self.dataset, [val_size, test_size], generator=generator
+        )
 
     def train_dataloader(self) -> DataLoader:
         """

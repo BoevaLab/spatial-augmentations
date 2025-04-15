@@ -1,7 +1,7 @@
 import scanpy as sc
 
 
-def set_leiden_resolution(adata, target_num_clusters, tol=0.01, max_iter=20):
+def set_leiden_resolution(adata, target_num_clusters, seed, tol=0.01, max_iter=20):
     """
     Adjust the Leiden resolution to match the target number of clusters.
 
@@ -11,6 +11,8 @@ def set_leiden_resolution(adata, target_num_clusters, tol=0.01, max_iter=20):
         The AnnData object containing the data.
     target_num_clusters : int
         The desired number of clusters.
+    seed : int
+        The random seed for reproducibility.
     tol : float, optional
         The tolerance for the difference between the number of clusters and the target. Default is 0.01.
     max_iter : int, optional
@@ -26,7 +28,14 @@ def set_leiden_resolution(adata, target_num_clusters, tol=0.01, max_iter=20):
 
     for _ in range(max_iter):
         resolution = (low + high) / 2
-        sc.tl.leiden(adata, resolution=resolution)
+        sc.tl.leiden(
+            adata,
+            resolution=resolution,
+            flavor="igraph",
+            n_iterations=2,
+            directed=False,
+            random_state=seed,
+        )
         num_clusters = adata.obs["leiden"].nunique()
 
         if abs(num_clusters - target_num_clusters) <= tol:

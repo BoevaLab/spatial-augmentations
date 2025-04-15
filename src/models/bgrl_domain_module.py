@@ -58,6 +58,7 @@ class BGRLDomainLitModule(LightningModule):
         mu: float,
         p_lambda: float,
         processed_dir: str,
+        seed: int,
     ) -> None:
         """
         Initialize the BGRLDomainLitModule.
@@ -99,6 +100,8 @@ class BGRLDomainLitModule(LightningModule):
             A hyperparameter for the graph augmentation process.
         processed_dir : str
             Directory where processed data is stored. Used during testing to load additional metadata.
+        seed : int
+            Random seed for reproducibility.
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -349,11 +352,16 @@ class BGRLDomainLitModule(LightningModule):
             # determine resolution based on number of ground truth labels
             sc.pp.neighbors(adata, use_rep="cell_embeddings")
             resolution = set_leiden_resolution(
-                adata, target_num_clusters=ground_truth_labels.nunique()
+                adata, target_num_clusters=ground_truth_labels.nunique(), seed=self.hparams.seed
             )
             # perform leiden clustering
             sc.tl.leiden(
-                adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False
+                adata,
+                resolution=resolution,
+                flavor="igraph",
+                n_iterations=2,
+                directed=False,
+                random_state=self.hparams.seed,
             )
             leiden_labels = adata.obs["leiden"]
 
@@ -476,11 +484,16 @@ class BGRLDomainLitModule(LightningModule):
             # determine resolution based on number of ground truth labels
             sc.pp.neighbors(adata, use_rep="cell_embeddings")
             resolution = set_leiden_resolution(
-                adata, target_num_clusters=ground_truth_labels.nunique()
+                adata, target_num_clusters=ground_truth_labels.nunique(), seed=self.hparams.seed
             )
             # perform leiden clustering
             sc.tl.leiden(
-                adata, resolution=resolution, flavor="igraph", n_iterations=2, directed=False
+                adata,
+                resolution=resolution,
+                flavor="igraph",
+                n_iterations=2,
+                directed=False,
+                random_state=self.hparams.seed,
             )
             leiden_labels = adata.obs["leiden"]
 
