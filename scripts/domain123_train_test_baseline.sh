@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=domain123_train_test_baseline
-#SBATCH --output=domain123_train_test_baseline.txt
+#SBATCH --output=logs/slurm/domain123_train_test_baseline/%j.out
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
 #SBATCH --mem=8G
