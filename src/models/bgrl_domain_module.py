@@ -418,10 +418,10 @@ class BGRLDomainLitModule(LightningModule):
         completeness_scores = torch.stack([x["completeness"] for x in self.test_outputs])
 
         # compute mean scores
-        mean_nmi = nmi_scores.mean()
-        mean_ari = ari_scores.mean()
-        mean_homogeneity = homogeneity_scores.mean()
-        mean_completeness = completeness_scores.mean()
+        mean_nmi = nmi_scores.mean().cpu().numpy()
+        mean_ari = ari_scores.mean().cpu().numpy()
+        mean_homogeneity = homogeneity_scores.mean().cpu().numpy()
+        mean_completeness = completeness_scores.mean().cpu().numpy()
 
         # log the mean scores
         self.log("test/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
