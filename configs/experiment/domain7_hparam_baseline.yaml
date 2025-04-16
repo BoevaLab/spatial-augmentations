@@ -7,7 +7,7 @@ defaults:
   - override /data: spatial_omics
   - override /model: bgrl_domain
   - override /trainer: gpu
-  - override / callbacks: default
+  - override /callbacks: default
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
