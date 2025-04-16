@@ -29,7 +29,7 @@ data:
   n_pca_components: 50
   graph_method: "knn"
   n_neighbors: 10
-  redo_preprocess: True
+  redo_preprocess: False
 
 model:
   net:
