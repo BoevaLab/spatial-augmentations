@@ -147,53 +147,36 @@ def preprocess_sample(
     None
         The function modifies the input AnnData object in place.
 
+    Steps:
+    -----
+    1. **Domain Annotation**:
+        - Determines the domain annotation key based on the sample name.
+        - Removes cells with "unassigned" or "NA" in the domain annotation.
+    2. **Gene and Cell Filtering**:
+        - Filters out genes expressed in fewer than `min_cells` cells.
+        - Filters out cells with fewer than `min_genes` dynamically adjusted based on the total number of genes.
+    3. **Normalization and Scaling**:
+        - Normalizes gene expression values to a target sum per cell.
+        - Applies log transformation to gene expression values.
+        - Scales gene expression values to unit variance and zero mean.
+    4. **Augmentation (Optional)**:
+        - If `augmentation_mode` is "pseudo_batch_effect", applies a pseudo batch effect to the gene expression matrix.
+        - The transformation is defined as: `X_augmented = a + X * (1 + s)`, where:
+            - `a` is sampled from an exponential distribution with rate `lambda_param`.
+            - `s` is sampled from a normal distribution with mean 0 and standard deviation `sigma_param`.
+    5. **Dimensionality Reduction**:
+        - Performs PCA to reduce the dimensionality of the data to `n_pca_components`.
+
     Notes:
     -----
-    - The preprocessing steps include:
-        1. Filtering genes and cells based on the specified thresholds.
-        2. Normalizing, log-transforming, and scaling the gene expression matrix.
-        3. Optionally applying the pseudo batch effect if `augmentation_mode` is set to "pseudo_batch_effect".
-        4. Performing PCA to reduce the dimensionality of the data.
-    - The pseudo batch effect modifies the gene expression matrix `X` as:
-        `X_augmented = a + X * (1 + s)`, where:
-        - `a` is sampled from an exponential distribution with rate `lambda_param`.
-        - `s` is sampled from a normal distribution with mean 0 and standard deviation `sigma_param`.
+    - The function modifies the input `adata` object directly.
+    - Ensure that the `sample_name` matches the expected prefixes to correctly assign the domain annotation.
+    - The pseudo batch effect is only applied if `augmentation_mode` is set to "pseudo_batch_effect".
     """
     total_genes = adata.n_vars
     min_genes_dynamic = max(min_genes, int(total_genes * 0.01))
 
-    # step 1: filter genes and cells
-    sc.pp.filter_genes(
-        adata, min_cells=min_cells
-    )  # filter genes expressed in less than min_cells cells
-    sc.pp.filter_cells(
-        adata, min_genes=min_genes_dynamic
-    )  # filter cells with less than min_genes genes expressed
-
-    # step 2: normalize, scale, and log transform
-    sc.pp.normalize_total(
-        adata, target_sum=1e5
-    )  # normalize gene expression values with a target sum per cell of 1e5
-    sc.pp.log1p(adata)  # log transform gene expression values (log1p(x) = log(x+1))
-    sc.pp.scale(adata)  # scale gene expression values to unit variance and zero mean
-
-    # step 3: add pseudo batch effect if in advanced augmentation mode
-    if augmentation_mode == "pseudo_batch_effect":
-        X = adata.X  # gene expression matrix
-        P = X.shape[1]  # number of genes
-
-        # generate random vectors (following exponential and normal distributions)
-        a = np.random.exponential(scale=1 / lambda_param, size=P).astype(np.float32)
-        s = np.random.normal(loc=0, scale=sigma_param, size=P).astype(np.float32)
-
-        # apply the pseudo batch effect transformation
-        X_augmented = a + X * (1 + s)
-        adata.X = X_augmented
-
-    # step 4: perform PCA with n_pca_components components
-    sc.pp.pca(adata, n_comps=n_pca_components)
-
-    # step 5: make domain annotation based on sample name
+    # step 1: make domain annotation based on sample name and remove unassigned
     domain_name = None
     if sample_name.startswith("MERFISH_small"):
         domain_name = "domain"
@@ -206,6 +189,39 @@ def preprocess_sample(
     elif sample_name.startswith("Zhuang"):
         domain_name = "parcellation_substructure"
     adata.obs["domain_annotation"] = adata.obs[domain_name]
+    adata = adata[~adata.obs["domain_annotation"].str.contains("unassigned")]
+    adata = adata[~adata.obs["domain_annotation"].str.contains("NA")]
+
+    # step 2: filter genes and cells
+    sc.pp.filter_genes(
+        adata, min_cells=min_cells
+    )  # filter genes expressed in less than min_cells cells
+    sc.pp.filter_cells(
+        adata, min_genes=min_genes_dynamic
+    )  # filter cells with less than min_genes genes expressed
+
+    # step 3: normalize, scale, and log transform
+    sc.pp.normalize_total(
+        adata, target_sum=1e5
+    )  # normalize gene expression values with a target sum per cell of 1e5
+    sc.pp.log1p(adata)  # log transform gene expression values (log1p(x) = log(x+1))
+    sc.pp.scale(adata)  # scale gene expression values to unit variance and zero mean
+
+    # step 4: add pseudo batch effect if in advanced augmentation mode
+    if augmentation_mode == "pseudo_batch_effect":
+        X = adata.X  # gene expression matrix
+        P = X.shape[1]  # number of genes
+
+        # generate random vectors (following exponential and normal distributions)
+        a = np.random.exponential(scale=1 / lambda_param, size=P).astype(np.float32)
+        s = np.random.normal(loc=0, scale=sigma_param, size=P).astype(np.float32)
+
+        # apply the pseudo batch effect transformation
+        X_augmented = a + X * (1 + s)
+        adata.X = X_augmented
+
+    # step 5: perform PCA with n_pca_components components
+    sc.pp.pca(adata, n_comps=n_pca_components)
 
 
 def euclid_dist(t1: np.ndarray, t2: np.ndarray) -> float:
