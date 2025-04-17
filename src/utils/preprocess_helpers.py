@@ -188,9 +188,9 @@ def preprocess_sample(
         domain_name = "region"
     elif sample_name.startswith("Zhuang"):
         domain_name = "parcellation_substructure"
-    adata.obs["domain_annotation"] = adata.obs[domain_name]
-    adata = adata[~adata.obs["domain_annotation"].str.contains("unassigned")]
-    adata = adata[~adata.obs["domain_annotation"].str.contains("NA")]
+    adata.obs["domain_annotation"] = adata.obs[domain_name].astype(str)
+    adata._inplace_subset_obs(~adata.obs["domain_annotation"].str.contains("unassigned"))
+    adata._inplace_subset_obs(~adata.obs["domain_annotation"].str.contains("NA"))
 
     # step 2: filter genes and cells
     sc.pp.filter_genes(
