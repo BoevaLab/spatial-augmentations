@@ -45,9 +45,7 @@ hydra:
 
     # define hyperparameter search space
     params:
-      model.net.encoder.hidden_size: choice(32, 64)
       model.net.encoder.dropout: interval(0.1, 0.5)
-      model.net.projector.hidden_size: choice(32, 64)
       model.optimizer.lr: interval(0.0001, 0.001)
       model.optimizer.weight_decay: interval(0.0, 0.1)
       model.mm: interval(0.95, 0.99)
