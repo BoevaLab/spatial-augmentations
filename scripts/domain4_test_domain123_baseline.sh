@@ -4,9 +4,9 @@
 #SBATCH --output=logs/slurm/domain4_test_domain123_baseline/%j.out
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx2080ti:1
-#SBATCH --mem=8G
+#SBATCH --mem=32G
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 
 # shellcheck disable=SC1091
 source "$HOME/.bashrc"
