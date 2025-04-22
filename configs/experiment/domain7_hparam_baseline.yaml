@@ -7,7 +7,6 @@ defaults:
   - override /data: spatial_omics
   - override /model: bgrl_domain
   - override /trainer: gpu
-  - override /callbacks: default
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
@@ -76,7 +75,3 @@ trainer:
   check_val_every_n_epoch: 9999
   precision: 16
   accumulate_grad_batches: 4
-
-callbacks:
-  early_stopping:
-    patience: 10
