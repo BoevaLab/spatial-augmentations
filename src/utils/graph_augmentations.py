@@ -141,7 +141,9 @@ class DropEdges:
         Data
             The transformed graph data with some edges dropped.
         """
-        edge_index, edge_mask = dropout_edge(data.edge_index, p=self.p)
+        edge_index, edge_mask = dropout_edge(
+            data.edge_index, p=self.p, force_undirected=self.force_undirected
+        )
         data.edge_index = edge_index
         data.edge_weight = data.edge_weight[edge_mask]
         return data
@@ -158,65 +160,6 @@ class DropEdges:
         return "{}(p={}, force_undirected={})".format(
             self.__class__.__name__, self.p, self.force_undirected
         )
-
-
-class PseudoBatchEffect:
-    def __init__(self, lambda_param: float, sigma: float):
-        """
-        Initializes the PseudoBatchEffect transformation.
-
-        Parameters:
-        -----------
-        lambda_param : float
-            The rate parameter for the exponential distribution.
-        sigma : float
-            The standard deviation for the normal distribution.
-        """
-        self.lambda_param = lambda_param
-        self.sigma = sigma
-
-    def __call__(self, data):
-        """
-        Applies the pseudo batch effect transformation to the gene expression matrix.
-
-        Parameters:
-        -----------
-        data : torch_geometric.data.Data
-            The graph data object containing the gene expression matrix `x`.
-
-        Returns:
-        --------
-        data : torch_geometric.data.Data
-            The transformed graph data object with updated `x`.
-        """
-        # gene expression matrix
-        x = data.x
-
-        # number of genes
-        P = x.shape[1]
-
-        # generate random vectors (following exponential and normal distributions)
-        a = torch.from_numpy(np.random.exponential(scale=1 / self.lambda_param, size=P)).float()
-        s = torch.from_numpy(np.random.normal(loc=0, scale=self.sigma, size=P)).float()
-
-        # apply the pseudo batch effect transformation
-        x_augmented = a + x * (1 + s)
-
-        # update the gene expression matrix in the data object
-        data.x = x_augmented
-
-        return data
-
-    def __repr__(self):
-        """
-        Returns a string representation of the transformation.
-
-        Returns:
-        --------
-        str
-            A string describing the transformation and its parameters.
-        """
-        return f"{self.__class__.__name__}(lambda_param={self.lambda_param}, sigma={self.sigma})"
 
 
 class DropImportance:
@@ -282,6 +225,8 @@ class DropImportance:
             torch.tensor(self.p_lambda, device=node_importance.device),
         )
         node_drop_mask = torch.rand_like(data.x[:, 0]) < node_sampling_prob
+
+        # apply the dropout mask to node features
         data.x[node_drop_mask] = 0
 
         # calculate edge importance as the mean of the importance of the two connected nodes
