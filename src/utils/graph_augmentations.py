@@ -21,7 +21,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 from torch_geometric.transforms import Compose
-from torch_geometric.utils import dropout_edge
+from torch_geometric.utils import degree, dropout_edge
 
 
 class DropFeatures:
@@ -221,7 +221,8 @@ class PseudoBatchEffect:
 
 class DropImportance:
     """
-    Drops node features and edges based on their importance.
+    Drops node features and edges based on their importance. This class is inspired by
+    DOI: 10.1007/s00521-023-09274-6 and by DOI: 10.48550/arXiv.2010.14945.
 
     Node importance is derived from the logarithm of degree centrality, normalized, and used to define
     the sampling probability for masking node features. Edge importance is calculated as the mean of
@@ -245,6 +246,7 @@ class DropImportance:
 
     def __init__(self, mu, p_lambda):
         assert 0.0 < p_lambda <= 1.0, "p_lambda must be between 0 and 1, but got %.2f" % p_lambda
+        assert 0.0 < mu <= 1.0, "mu must be between 0 and 1, but got %.2f" % mu
         self.mu = mu
         self.p_lambda = p_lambda
 
@@ -263,14 +265,14 @@ class DropImportance:
             The transformed graph data with some features and edges dropped based on importance.
         """
         # calculate degree centrality for each node
-        degree = torch.bincount(data.edge_index[0], minlength=data.num_nodes).float()
-        log_degree = torch.log(degree + 1)
+        deg = degree(data.edge_index[0], data.num_nodes).float()
+        log_deg = torch.log(deg + 1)
 
         # normalize the log degree centrality
-        max_log_degree = log_degree.max()
-        avg_log_degree = log_degree.mean()
-        node_importance = (log_degree - avg_log_degree) / (
-            max_log_degree - avg_log_degree + 1e-8
+        max_log_deg = log_deg.max()
+        avg_log_deg = log_deg.mean()
+        node_importance = (log_deg - avg_log_deg) / (
+            max_log_deg - avg_log_deg + 1e-8
         )  # avoid division by zero
         node_importance = torch.clamp(node_importance, min=0)  # ensure non-negative importance
 
@@ -301,8 +303,8 @@ class DropImportance:
             torch.tensor(self.p_lambda, device=edge_importance.device),
         )
         edge_drop_mask = torch.rand_like(edge_sampling_prob) < edge_sampling_prob
-        data.edge_index = data.edge_index[:, edge_drop_mask]
-        data.edge_weight = data.edge_weight[edge_drop_mask]
+        data.edge_index = data.edge_index[:, ~edge_drop_mask]
+        data.edge_weight = data.edge_weight[~edge_drop_mask]
 
         return data
 
@@ -316,6 +318,78 @@ class DropImportance:
             A string describing the transformation and its parameters.
         """
         return f"{self.__class__.__name__}(mu={self.mu}, p_lambda={self.p_lambda})"
+
+
+class RewireEdges:
+    """
+    Rewires edges in a spatial neighborhood.
+
+    Parameters:
+    -----------
+    p_rewire : float
+        The probability of rewiring an edge. Must be between 0 and 1.
+    """
+
+    def __init__(self, p_rewire):
+        assert 0.0 < p_rewire <= 1.0, "Rewiring probability must be between 0 and 1."
+        self.p_rewire = p_rewire
+
+    def __call__(self, data):
+        """
+        Applies the edge rewiring transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing precomputed edges and spatial positions.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with some edges rewired.
+        """
+        num_edges = data.edge_index.size(1)
+
+        for i in range(num_edges):
+            # randomly rewire edges with probability p_rewire
+            if torch.rand(1) < self.p_rewire:
+                # get the source and target nodes of the edge, and the neighbors of the source node
+                source = data.edge_index[0, i].item()
+                target = data.edge_index[1, i].item()
+                neighbors = list(set(data.edge_index[1, data.edge_index[0] == source].tolist()))
+
+                # compute the new targets from the neighbors of neighbors minus the current neighbors
+                # and the source and target nodes
+                neighbors_of_neighbors = []
+                for neighbor in neighbors:
+                    second_neighbors = data.edge_index[1, data.edge_index[0] == neighbor].tolist()
+                    neighbors_of_neighbors.extend(second_neighbors)
+                new_targets = list(
+                    set(neighbors_of_neighbors) - set(neighbors) - {source} - {target}
+                )
+
+                # randomly select a new target from the available targets
+                if len(new_targets) > 0:
+                    new_target = torch.tensor(
+                        new_targets[torch.randint(0, len(new_targets), (1,)).item()],
+                        device=data.edge_index.device,
+                    )
+
+                    # update the edge index with the new target
+                    data.edge_index[1, i] = new_target
+
+                    # update the corresponding reverse edge
+                    reverse_edge_mask = (data.edge_index[0] == target) & (
+                        data.edge_index[1] == source
+                    )
+                    reverse_edge_indices = reverse_edge_mask.nonzero(as_tuple=True)[0]
+                    reverse_edge_idx = reverse_edge_indices[0].item()
+                    data.edge_index[0, reverse_edge_idx] = new_target
+
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(p_rewire={self.p_rewire})"
 
 
 def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_lambda):
