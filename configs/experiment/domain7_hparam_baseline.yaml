@@ -50,14 +50,14 @@ model:
 
   scheduler:
     _partial_: true
-    T_max: 12987
+    T_max: 25974
     eta_min: 1e-7
 
   compile: false # compile model for faster training with pytorch 2.0
   augmentation_mode: "baseline" # augmetation mode, either baseline or advanced
   mm: 0.99 # momentum for moving average of target encoder
   warmup_steps: 100 # number of warmup steps
-  total_steps: 12987 # total number of training steps
+  total_steps: 25974 # total number of training steps
   drop_edge_p1: 0.3 # drop edge probability for first augmentation
   drop_edge_p2: 0.3 # drop edge probability for second augmentation
   drop_feat_p1: 0.3 # drop feature probability for first augmentation
