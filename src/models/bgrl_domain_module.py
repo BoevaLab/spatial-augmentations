@@ -57,6 +57,8 @@ class BGRLDomainLitModule(LightningModule):
         drop_feat_p2: float,
         mu: float,
         p_lambda: float,
+        p_rewire: float,
+        p_shuffle: float,
         processed_dir: str,
         seed: int,
     ) -> None:
@@ -97,6 +99,10 @@ class BGRLDomainLitModule(LightningModule):
         mu : float
             A hyperparameter for the graph augmentation process.
         p_lambda : float
+            A hyperparameter for the graph augmentation process.
+        p_rewire : float
+            A hyperparameter for the graph augmentation process.
+        p_shuffle : float
             A hyperparameter for the graph augmentation process.
         processed_dir : str
             Directory where processed data is stored. Used during testing to load additional metadata.
@@ -225,6 +231,8 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.drop_feat_p1,
             self.hparams.mu,
             self.hparams.p_lambda,
+            self.hparams.p_rewire,
+            self.hparams.p_shuffle,
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
@@ -232,6 +240,8 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.drop_feat_p2,
             self.hparams.mu,
             self.hparams.p_lambda,
+            self.hparams.p_rewire,
+            self.hparams.p_shuffle,
         )
 
         augmented1 = transform1(batch)

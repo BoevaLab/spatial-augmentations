@@ -1,15 +1,18 @@
 """
 Graph Augmentation Utilities for Spatial Omics Data.
 
-This module provides utilities for performing graph augmentations, including dropping edges and node features.
-These augmentations are commonly used in graph-based machine learning tasks to improve model robustness and
-generalization.
+This module provides utilities for performing graph augmentations, including dropping edges, dropping node features,
+rewiring edges, shuffling node positions, and dropping features/edges based on their importance.
+These augmentations are commonly used in graph-based machine learning tasks to improve model robustness,
+generalization, and performance on spatial omics data.
 
 Classes:
 --------
 - DropFeatures: Drops node features with a specified probability.
 - DropEdges: Drops edges with a specified probability.
-- Compose: Combines multiple transformations into a single callable.
+- DropImportance: Drops node features and edges based on their importance.
+- RewireEdges: Rewires edges in a spatial neighborhood with a specified probability.
+- ShufflePositions: Shuffles node positions within a spatial neighborhood.
 
 Functions:
 ----------
@@ -185,6 +188,12 @@ class DropImportance:
         Applies the feature and edge dropout transformations based on importance to the input graph data.
     __repr__():
         Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - Node importance is calculated using the logarithm of degree centrality.
+    - Edge importance is calculated as the mean importance of the two connected nodes.
+    - Reverse edges are automatically handled to ensure consistency in undirected graphs.
     """
 
     def __init__(self, mu, p_lambda):
@@ -214,10 +223,8 @@ class DropImportance:
         # normalize the log degree centrality
         max_log_deg = log_deg.max()
         avg_log_deg = log_deg.mean()
-        node_importance = (log_deg - avg_log_deg) / (
-            max_log_deg - avg_log_deg + 1e-8
-        )  # avoid division by zero
-        node_importance = torch.clamp(node_importance, min=0)  # ensure non-negative importance
+        node_importance = (log_deg - avg_log_deg) / (max_log_deg - avg_log_deg + 1e-8)
+        node_importance = torch.clamp(node_importance, min=0)
 
         # define node sampling probability and create dropout mask
         node_sampling_prob = torch.min(
@@ -240,7 +247,7 @@ class DropImportance:
         edge_importance = (edge_importance - avg_edge_importance) / (
             max_edge_importance - avg_edge_importance + 1e-8
         )
-        edge_importance = torch.clamp(edge_importance, min=0)  # Ensure non-negative importance
+        edge_importance = torch.clamp(edge_importance, min=0)
 
         # define edge sampling probability and create dropout mask
         edge_sampling_prob = torch.min(
@@ -248,6 +255,16 @@ class DropImportance:
             torch.tensor(self.p_lambda, device=edge_importance.device),
         )
         edge_drop_mask = torch.rand_like(edge_sampling_prob) < edge_sampling_prob
+
+        # add reverse edges to dropout mask
+        for i in range(data.edge_index.size(1)):
+            if edge_drop_mask[i]:
+                source = data.edge_index[0, i]
+                target = data.edge_index[1, i]
+                reverse_edge_mask = (data.edge_index[0] == target) & (data.edge_index[1] == source)
+                edge_drop_mask[reverse_edge_mask.nonzero(as_tuple=True)[0]] = True
+
+        # apply the dropout mask to edges
         data.edge_index = data.edge_index[:, ~edge_drop_mask]
         data.edge_weight = data.edge_weight[~edge_drop_mask]
 
@@ -269,10 +286,27 @@ class RewireEdges:
     """
     Rewires edges in a spatial neighborhood.
 
+    This transformation randomly rewires edges in the graph with a specified probability `p_rewire`.
+    For each edge selected for rewiring, a new target node is chosen from the neighbors of the source
+    node's neighbors, excluding the source node, the current target node, and the source node's direct neighbors.
+
     Parameters:
     -----------
     p_rewire : float
         The probability of rewiring an edge. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the edge rewiring transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - Reverse edges are updated to maintain consistency in undirected graphs.
+    - The rewiring process ensures that the graph structure remains valid by avoiding self-loops
+      and preserving connectivity within the graph.
     """
 
     def __init__(self, p_rewire):
@@ -334,15 +368,109 @@ class RewireEdges:
         return data
 
     def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
         return f"{self.__class__.__name__}(p_rewire={self.p_rewire})"
 
 
-def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_lambda):
+class ShufflePositions:
+    """
+    Shuffles node positions within a spatial neighborhood.
+
+    This transformation randomly shuffles the positions of nodes with a specified probability `p_shuffle`.
+    For each node selected for shuffling, its position is swapped with the position of one of its neighbors.
+
+    Parameters:
+    -----------
+    p_shuffle : float
+        The probability of shuffling a node's position. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the position shuffling transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation ensures that the graph structure remains valid by only swapping positions
+      between nodes that are connected by an edge.
+    - The edge index is updated to reflect the swapped positions, maintaining consistency in the graph.
+    """
+
+    def __init__(self, p_shuffle):
+        assert 0.0 < p_shuffle <= 1.0, "Shuffling probability must be between 0 and 1."
+        self.p_shuffle = p_shuffle
+
+    def __call__(self, data):
+        """
+        Applies the position shuffling transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node positions and edges.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with shuffled positions.
+        """
+        for node in range(data.position.size(0)):
+            # iterate over all nodes and randomly select a node to shuffle its position
+            if torch.rand(1).item() < self.p_shuffle:
+                # get the neighbors of the current node
+                neighbors = data.edge_index[1, data.edge_index[0] == node]
+                if len(neighbors) > 0:
+                    # randomly select a neighbor to swap positions with
+                    neighbor = neighbors[torch.randint(0, len(neighbors), (1,))].item()
+
+                    # swap the positions of the current node and the selected neighbor
+                    data.position[[node, neighbor]] = data.position[[neighbor, node]]
+
+                    # update the edge index to reflect the swapped positions
+                    mask_a = data.edge_index == node
+                    mask_b = data.edge_index == neighbor
+                    data.edge_index[mask_a] = neighbor
+                    data.edge_index[mask_b] = node
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p_shuffle={self.p_shuffle})"
+
+
+def get_graph_augmentation(
+    augmentation_mode: str,
+    drop_edge_p: float,
+    drop_feat_p: float,
+    mu: float,
+    p_lambda: float,
+    p_rewire: float,
+    p_shuffle: float,
+):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
 
     This function constructs a sequence of transformations to apply to graph data. The transformations
-    include copying the graph, dropping edges, and dropping node features.
+    include copying the graph, dropping edges, dropping node features, dropping edges and node features
+    based on their importance, rewiring edges in a spatial neighborhood, and shuffling node positions
+    in a spatial neighborhood.
 
     Parameters:
     -----------
@@ -356,6 +484,10 @@ def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_la
         A hyperparameter that controls the overall proportion of masking nodes and edges.
     p_lambda : float
         A threshold value to prevent masking nodes or edges with high importance. Must be between 0 and 1.
+    p_rewire : float
+        The probability of rewiring an edge. Must be between 0 and 1.
+    p_shuffle : float
+        The probability of shuffling a node's position. Must be between 0 and 1.
 
     Returns:
     --------
@@ -391,7 +523,16 @@ def get_graph_augmentation(augmentation_mode, drop_edge_p, drop_feat_p, mu, p_la
         transforms.append(deepcopy)
 
         # drop importance
-        transforms.append(DropImportance(mu, p_lambda))
+        if mu > 0.0 and p_lambda > 0.0:
+            transforms.append(DropImportance(mu, p_lambda))
+
+        # rewire edges
+        if p_rewire > 0.0:
+            transforms.append(RewireEdges(p_rewire))
+
+        # shuffle positions
+        if p_shuffle > 0.0:
+            transforms.append(ShufflePositions(p_shuffle))
 
         # return the composed transformation
         return Compose(transforms)
