@@ -25,6 +25,7 @@ import numpy as np
 import torch
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import degree, dropout_edge
+from torch_sparse import SparseTensor
 
 
 class DropFeatures:
@@ -329,41 +330,183 @@ class RewireEdges:
         """
         num_edges = data.edge_index.size(1)
 
+        # build a dictionary of neighbors for each node
+        neighbors_dict = {i: set() for i in range(data.num_nodes)}
+        for src, tgt in data.edge_index.t().tolist():
+            neighbors_dict[src].add(tgt)
+
+        # copy the edge index to avoid in-place modification during loop
+        new_edges = data.edge_index.clone()
+
+        # loop over each edge and rewire with probability p_rewire
         for i in range(num_edges):
-            # randomly rewire edges with probability p_rewire
-            if torch.rand(1) < self.p_rewire:
-                # get the source and target nodes of the edge, and the neighbors of the source node
-                source = data.edge_index[0, i].item()
-                target = data.edge_index[1, i].item()
-                neighbors = list(set(data.edge_index[1, data.edge_index[0] == source].tolist()))
+            if torch.rand(1).item() < self.p_rewire:
+                # get source and target nodes of the edge
+                src = data.edge_index[0, i].item()
+                tgt = data.edge_index[1, i].item()
 
-                # compute the new targets from the neighbors of neighbors minus the current neighbors
+                # get neighbors of the source node
+                neighbors = neighbors_dict[src]
+
+                # get the second neighbors of the source node
+                second_hop = set()
+                for n in neighbors:
+                    second_hop |= neighbors_dict[n]
+
+                # candidates for new target nodes are the second neighbors minus the current neighbors
                 # and the source and target nodes
-                neighbors_of_neighbors = []
-                for neighbor in neighbors:
-                    second_neighbors = data.edge_index[1, data.edge_index[0] == neighbor].tolist()
-                    neighbors_of_neighbors.extend(second_neighbors)
-                new_targets = list(
-                    set(neighbors_of_neighbors) - set(neighbors) - {source} - {target}
-                )
+                candidate_targets = list(second_hop - neighbors - {src, tgt})
 
-                # randomly select a new target from the available targets
-                if len(new_targets) > 0:
-                    new_target = torch.tensor(
-                        new_targets[torch.randint(0, len(new_targets), (1,)).item()],
+                if candidate_targets:
+                    # randomly select a new target node from the candidates
+                    new_tgt = torch.tensor(
+                        candidate_targets[torch.randint(0, len(candidate_targets), (1,)).item()],
                         device=data.edge_index.device,
                     )
 
-                    # update the edge index with the new target
-                    data.edge_index[1, i] = new_target
+                    # update the forward edge
+                    new_edges[1, i] = new_tgt
 
-                    # update the corresponding reverse edge
-                    reverse_edge_mask = (data.edge_index[0] == target) & (
-                        data.edge_index[1] == source
-                    )
-                    reverse_edge_indices = reverse_edge_mask.nonzero(as_tuple=True)[0]
-                    reverse_edge_idx = reverse_edge_indices[0].item()
-                    data.edge_index[0, reverse_edge_idx] = new_target
+                    # update the reverse edge if it exists
+                    reverse_mask = (data.edge_index[0] == tgt) & (data.edge_index[1] == src)
+                    if reverse_mask.any():
+                        reverse_idx = reverse_mask.nonzero(as_tuple=True)[0][0]
+                        new_edges[0, reverse_idx] = new_tgt
+
+        data.edge_index = new_edges
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p_rewire={self.p_rewire})"
+
+
+class RewireEdgesFast:
+    """
+    Rewires edges in a spatial neighborhood.
+
+    This transformation randomly rewires edges in the graph with a specified probability `p_rewire`.
+    For each edge selected for rewiring, a new target node is chosen from the neighbors of the source
+    node's neighbors, excluding the source node, the current target node, and the source node's direct neighbors.
+
+    Parameters:
+    -----------
+    p_rewire : float
+        The probability of rewiring an edge. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the edge rewiring transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - Reverse edges are updated to maintain consistency in undirected graphs.
+    - The rewiring process ensures that the graph structure remains valid by avoiding self-loops
+      and preserving connectivity within the graph.
+    """
+
+    def __init__(self, p_rewire):
+        assert 0.0 < p_rewire <= 1.0, "Rewiring probability must be between 0 and 1."
+        self.p_rewire = p_rewire
+
+    def __call__(self, data):
+        """
+        Applies the edge rewiring transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing precomputed edges and spatial positions.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with some edges rewired.
+        """
+        edge_index = data.edge_index.clone()
+        num_nodes = data.num_nodes
+        num_edges = edge_index.size(1)
+        device = edge_index.device
+
+        # build adjacency as SparseTensor
+        adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(num_nodes, num_nodes)).to(
+            device
+        )
+
+        # sample edges to rewire
+        mask = torch.rand(num_edges, device=device) < self.p_rewire
+        edge_index_rewire = edge_index[:, mask]
+        edge_index_keep = edge_index[:, ~mask]
+
+        # for each edge to rewire: find 2-hop candidates (via matrix multiplication)
+        row, col = edge_index_rewire
+        second_hop = adj @ adj
+        second_hop.set_diag(0)
+
+        # build mask to exclude direct neighbors
+        direct = adj.to_dense()
+        candidate_mask = (second_hop.to_dense() > 0) & (direct == 0)
+
+        # pick new target nodes for each edge
+        new_edges = []
+        for i in range(edge_index_rewire.size(1)):
+            # get source and target of edge to rewire
+            src = edge_index_rewire[0, i].item()
+            tgt = edge_index_rewire[1, i].item()
+            # print(f"Rewiring edge {src} -> {tgt}")
+
+            # check if the reverse edge still exists
+            col_to_remove = ((edge_index_keep[0] == tgt) & (edge_index_keep[1] == src)).nonzero(
+                as_tuple=True
+            )[0]
+            if col_to_remove.numel() == 0:
+                continue
+
+            # remove reverse edge from edge_index_keep
+            col_to_remove = (
+                ((edge_index_keep[0] == tgt) & (edge_index_keep[1] == src))
+                .nonzero(as_tuple=True)[0]
+                .item()
+            )
+            edge_index_keep = torch.cat(
+                (edge_index_keep[:, :col_to_remove], edge_index_keep[:, col_to_remove + 1 :]),
+                dim=1,
+            )
+
+            # get candidates for the new target node (remove src and tgt)
+            candidates = candidate_mask[src].nonzero(as_tuple=True)[0]
+            candidates = candidates[candidates != src]
+            candidates = candidates[candidates != tgt]
+            # print(f"Candidates for source {src}: {candidates.tolist()}")
+
+            # if there are candidates, pick one randomly
+            if len(candidates) > 0:
+                new_tgt = candidates[torch.randint(len(candidates), (1,)).item()]
+                # print(f"Rewiring edge {src} -> {tgt} to {src} -> {new_tgt.item()}")
+
+                # add new edge and reverse edge
+                new_edges.append([src, new_tgt])
+                new_edges.append([new_tgt, src])
+
+        # build new edge_index
+        if new_edges:
+            new_edges_tensor = torch.tensor(new_edges, device=device).T
+            edge_index_final = torch.cat([edge_index_keep, new_edges_tensor], dim=1)
+        else:
+            edge_index_final = edge_index
+
+        data.edge_index = edge_index_final
 
         return data
 
@@ -523,8 +666,16 @@ def get_graph_augmentation(
         transforms.append(deepcopy)
 
         # drop importance
-        if mu > 0.0 and p_lambda > 0.0:
-            transforms.append(DropImportance(mu, p_lambda))
+        # if mu > 0.0 and p_lambda > 0.0:
+        #    transforms.append(DropImportance(mu, p_lambda))
+
+        # drop edges
+        if drop_edge_p > 0.0:
+            transforms.append(DropEdges(drop_edge_p, force_undirected=True))
+
+        # drop features
+        if drop_feat_p > 0.0:
+            transforms.append(DropFeatures(drop_feat_p))
 
         # rewire edges
         if p_rewire > 0.0:
