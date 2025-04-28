@@ -23,6 +23,7 @@ Functions:
 # TODO: implement node feature augmentation to one of the views
 # TODO: cluster-level perturbations like position perturbations only for
 #       some clusters identified by a clustering algorithm like kmeans
+# TODO: implement low-pass filter for features
 
 from copy import deepcopy
 
@@ -672,6 +673,75 @@ class SpatialNoise:
         return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
 
 
+class FeatureNoise:
+    """
+    Adds Gaussian noise to node features in a graph.
+
+    This transformation perturbs the node features by adding Gaussian noise with a specified standard deviation.
+    It is useful for simulating variability or introducing randomness in graph data during training.
+
+    Parameters:
+    -----------
+    feature_noise_std : float
+        The standard deviation of the Gaussian noise to be added to the node features.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature noise transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation assumes that the input graph data contains an `x` attribute representing
+      the node features.
+    - If the `x` attribute is missing, an AttributeError is raised.
+    """
+
+    def __init__(self, feature_noise_std):
+        self.noise_std = feature_noise_std
+
+    def __call__(self, data):
+        """
+        Applies the feature noise transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node features.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with perturbed node features.
+
+        Raises:
+        -------
+        AttributeError
+            If the input graph data does not have an `x` attribute.
+        """
+        if hasattr(data, "x"):
+            # add noise to the features
+            noise = torch.randn_like(data.x) * self.noise_std
+            data.x += noise
+        else:
+            raise AttributeError("Data object does not have 'x' attribute.")
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
+
+
 def get_graph_augmentation(
     augmentation_mode: str,
     augmentation_list: list[str],
@@ -682,6 +752,7 @@ def get_graph_augmentation(
     p_rewire: float,
     p_shuffle: float,
     spatial_noise_std: float,
+    feature_noise_std: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -711,6 +782,8 @@ def get_graph_augmentation(
         The probability of shuffling a node's position. Must be between 0 and 1.
     spatial_noise_std : float
         The standard deviation of the Gaussian noise to be added to the node positions.
+    feature_noise_std : float
+        The standard deviation of the Gaussian noise to be added to the node features.
 
     Returns:
     --------
@@ -768,6 +841,10 @@ def get_graph_augmentation(
         # spatial noise
         if (spatial_noise_std > 0.00) and ("SpatialNoise" in augmentation_list):
             transforms.append(SpatialNoise(spatial_noise_std))
+
+        # feature noise
+        if (feature_noise_std > 0.00) and ("FeatureNoise" in augmentation_list):
+            transforms.append(FeatureNoise(feature_noise_std))
 
         # return the composed transformation
         return Compose(transforms)
