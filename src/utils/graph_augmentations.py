@@ -19,8 +19,10 @@ Functions:
 - get_graph_augmentation: Creates a composed graph augmentation pipeline based on the specified method and parameters.
 """
 
-# TODO: implement spatial noise augmentation
 # TODO: implement long range connection augmentation
+# TODO: implement node feature augmentation to one of the views
+# TODO: cluster-level perturbations like position perturbations only for
+#       some clusters identified by a clustering algorithm like kmeans
 
 from copy import deepcopy
 
@@ -693,6 +695,8 @@ def get_graph_augmentation(
     -----------
     augmentation_mode : str
         The augmentation mode to use. Currently, only 'baseline' is supported.
+    augmentation_list : list[str]
+        A list of augmentation methods to apply.
     drop_edge_p : float
         The probability of dropping an edge. Must be between 0 and 1.
     drop_feat_p : float
@@ -742,27 +746,27 @@ def get_graph_augmentation(
         transforms.append(deepcopy)
 
         # drop edges
-        if (drop_edge_p > 0.0) & ("DropEdges" in augmentation_list):
+        if (drop_edge_p > 0.0) and ("DropEdges" in augmentation_list):
             transforms.append(DropEdges(drop_edge_p, force_undirected=True))
 
         # drop features
-        if (drop_feat_p > 0.0) & ("DropFeatures" in augmentation_list):
+        if (drop_feat_p > 0.0) and ("DropFeatures" in augmentation_list):
             transforms.append(DropFeatures(drop_feat_p))
 
         # drop importance
-        if (mu > 0.0) & (p_lambda > 0.0) & ("DropImportance" in augmentation_list):
+        if (mu > 0.0) and (p_lambda > 0.0) and ("DropImportance" in augmentation_list):
             transforms.append(DropImportance(mu, p_lambda))
 
         # rewire edges
-        if (p_rewire > 0.0) & ("RewireEdges" in augmentation_list):
+        if (p_rewire > 0.0) and ("RewireEdges" in augmentation_list):
             transforms.append(RewireEdges(p_rewire))
 
         # shuffle positions
-        if (p_shuffle > 0.0) & ("ShufflePositions" in augmentation_list):
+        if (p_shuffle > 0.0) and ("ShufflePositions" in augmentation_list):
             transforms.append(ShufflePositions(p_shuffle))
 
         # spatial noise
-        if (spatial_noise_std > 0.00) & ("SpatialNoise" in augmentation_list):
+        if (spatial_noise_std > 0.00) and ("SpatialNoise" in augmentation_list):
             transforms.append(SpatialNoise(spatial_noise_std))
 
         # return the composed transformation
