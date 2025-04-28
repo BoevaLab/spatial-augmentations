@@ -742,27 +742,27 @@ def get_graph_augmentation(
         transforms.append(deepcopy)
 
         # drop edges
-        if drop_edge_p > 0.0:
+        if (drop_edge_p > 0.0) & ("DropEdges" in augmentation_list):
             transforms.append(DropEdges(drop_edge_p, force_undirected=True))
 
         # drop features
-        if drop_feat_p > 0.0:
+        if (drop_feat_p > 0.0) & ("DropFeatures" in augmentation_list):
             transforms.append(DropFeatures(drop_feat_p))
 
         # drop importance
-        # if mu > 0.0 and p_lambda > 0.0:
-        #    transforms.append(DropImportance(mu, p_lambda))
+        if (mu > 0.0) & (p_lambda > 0.0) & ("DropImportance" in augmentation_list):
+            transforms.append(DropImportance(mu, p_lambda))
 
         # rewire edges
-        # if p_rewire > 0.0:
-        #    transforms.append(RewireEdges(p_rewire))
+        if (p_rewire > 0.0) & ("RewireEdges" in augmentation_list):
+            transforms.append(RewireEdges(p_rewire))
 
         # shuffle positions
-        # if p_shuffle > 0.0:
-        #    transforms.append(ShufflePositions(p_shuffle))
+        if (p_shuffle > 0.0) & ("ShufflePositions" in augmentation_list):
+            transforms.append(ShufflePositions(p_shuffle))
 
         # spatial noise
-        if spatial_noise_std > 0.0:
+        if (spatial_noise_std > 0.00) & ("SpatialNoise" in augmentation_list):
             transforms.append(SpatialNoise(spatial_noise_std))
 
         # return the composed transformation
