@@ -46,6 +46,7 @@ class BGRLDomainLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
         augmentation_mode: str,
+        augmentation_list: List[str],
         mm: int,
         warmup_steps: int,
         total_steps: int,
@@ -59,6 +60,7 @@ class BGRLDomainLitModule(LightningModule):
         p_lambda: float,
         p_rewire: float,
         p_shuffle: float,
+        spatial_noise_std: float,
         processed_dir: str,
         seed: int,
     ) -> None:
@@ -77,6 +79,8 @@ class BGRLDomainLitModule(LightningModule):
             Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
         augmentation_mode : str
             The graph augmentation mode to use. Options are "baseline" or "advanced".
+        augmentation_list : List[str]
+            List of graph augmentation methods to apply. Only necessary if `augmentation_mode` is "advanced".
         mm : float
             Initial momentum for the moving average update of the target encoder. Default is 0.99.
         warmup_steps : int
@@ -104,6 +108,8 @@ class BGRLDomainLitModule(LightningModule):
             A hyperparameter for the graph augmentation process.
         p_shuffle : float
             A hyperparameter for the graph augmentation process.
+        spatial_noise_std : float
+            Standard deviation of the Gaussian noise added to the spatial coordinates of nodes.
         processed_dir : str
             Directory where processed data is stored. Used during testing to load additional metadata.
         seed : int
@@ -227,21 +233,25 @@ class BGRLDomainLitModule(LightningModule):
         """
         transform1 = get_graph_augmentation(
             self.hparams.augmentation_mode,
+            self.hparams.augmentation_list,
             self.hparams.drop_edge_p1,
             self.hparams.drop_feat_p1,
             self.hparams.mu,
             self.hparams.p_lambda,
             self.hparams.p_rewire,
             self.hparams.p_shuffle,
+            self.hparams.spatial_noise_std,
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
+            self.hparams.augmentation_list,
             self.hparams.drop_edge_p2,
             self.hparams.drop_feat_p2,
             self.hparams.mu,
             self.hparams.p_lambda,
             self.hparams.p_rewire,
             self.hparams.p_shuffle,
+            self.hparams.spatial_noise_std,
         )
 
         augmented1 = transform1(batch)

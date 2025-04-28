@@ -28,6 +28,7 @@ scheduler:
 
 compile: false # compile model for faster training with pytorch 2.0
 augmentation_mode: "baseline" # augmetation mode, either baseline or advanced
+augmentation_list: [] # list of augmentations to apply (only necessary for advanced mode)
 mm: 0.99 # momentum for moving average of target encoder
 warmup_steps: 100 # number of warmup steps
 total_steps: 2000 # total number of training steps
@@ -41,5 +42,6 @@ mu: 0.3 # hyperparameter for the graph augmentation
 p_lambda: 0.3 # hyperparameter for the graph augmentation
 p_rewire: 0.1 # hyperparameter for the graph augmentation
 p_shuffle: 0.1 # hyperparameter for the graph augmentation
+spatial_noise_std: 0.01 # standard deviation of the spatial noise augmentation
 processed_dir: ${paths.data_dir}domain/processed/ # directory for processed data
 seed: ${seed} # random seed

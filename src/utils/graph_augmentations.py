@@ -19,6 +19,9 @@ Functions:
 - get_graph_augmentation: Creates a composed graph augmentation pipeline based on the specified method and parameters.
 """
 
+# TODO: implement spatial noise augmentation
+# TODO: implement long range connection augmentation
+
 from copy import deepcopy
 
 import numpy as np
@@ -598,14 +601,85 @@ class ShufflePositions:
         return f"{self.__class__.__name__}(p_shuffle={self.p_shuffle})"
 
 
+class SpatialNoise:
+    """
+    Adds Gaussian noise to node positions in a graph.
+
+    This transformation perturbs the positions of nodes by adding Gaussian noise with a specified standard deviation.
+    It is useful for simulating spatial variability or introducing randomness in spatial graph data.
+
+    Parameters:
+    -----------
+    spatial_noise_std : float
+        The standard deviation of the Gaussian noise to be added to the node positions.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the spatial noise transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation assumes that the input graph data contains a `position` attribute representing
+      the spatial positions of nodes.
+    - If the `position` attribute is missing, an AttributeError is raised.
+    """
+
+    def __init__(self, spatial_noise_std):
+        self.noise_std = spatial_noise_std
+
+    def __call__(self, data):
+        """
+        Applies the spatial noise transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node positions.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with perturbed node positions.
+
+        Raises:
+        -------
+        AttributeError
+            If the input graph data does not have a `position` attribute.
+        """
+        if hasattr(data, "position"):
+            # add noise to the position
+            noise = torch.randn_like(data.position) * self.noise_std
+            data.position += noise
+        else:
+            raise AttributeError("Data object does not have 'position' attribute.")
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
+
+
 def get_graph_augmentation(
     augmentation_mode: str,
+    augmentation_list: list[str],
     drop_edge_p: float,
     drop_feat_p: float,
     mu: float,
     p_lambda: float,
     p_rewire: float,
     p_shuffle: float,
+    spatial_noise_std: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -631,6 +705,8 @@ def get_graph_augmentation(
         The probability of rewiring an edge. Must be between 0 and 1.
     p_shuffle : float
         The probability of shuffling a node's position. Must be between 0 and 1.
+    spatial_noise_std : float
+        The standard deviation of the Gaussian noise to be added to the node positions.
 
     Returns:
     --------
@@ -665,10 +741,6 @@ def get_graph_augmentation(
         # make copy of graph
         transforms.append(deepcopy)
 
-        # drop importance
-        # if mu > 0.0 and p_lambda > 0.0:
-        #    transforms.append(DropImportance(mu, p_lambda))
-
         # drop edges
         if drop_edge_p > 0.0:
             transforms.append(DropEdges(drop_edge_p, force_undirected=True))
@@ -677,13 +749,21 @@ def get_graph_augmentation(
         if drop_feat_p > 0.0:
             transforms.append(DropFeatures(drop_feat_p))
 
+        # drop importance
+        # if mu > 0.0 and p_lambda > 0.0:
+        #    transforms.append(DropImportance(mu, p_lambda))
+
         # rewire edges
-        if p_rewire > 0.0:
-            transforms.append(RewireEdges(p_rewire))
+        # if p_rewire > 0.0:
+        #    transforms.append(RewireEdges(p_rewire))
 
         # shuffle positions
-        if p_shuffle > 0.0:
-            transforms.append(ShufflePositions(p_shuffle))
+        # if p_shuffle > 0.0:
+        #    transforms.append(ShufflePositions(p_shuffle))
+
+        # spatial noise
+        if spatial_noise_std > 0.0:
+            transforms.append(SpatialNoise(spatial_noise_std))
 
         # return the composed transformation
         return Compose(transforms)
