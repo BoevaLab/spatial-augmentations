@@ -28,7 +28,8 @@ scheduler:
 
 compile: false # compile model for faster training with pytorch 2.0
 augmentation_mode: "baseline" # augmetation mode, either baseline or advanced
-augmentation_list: [] # list of augmentations to apply (only necessary for advanced mode)
+augmentation_list1: [] # list of augmentations to apply for the first view (only necessary for advanced mode)
+augmentation_list2: [] # list of augmentations to apply for the second view (only necessary for advanced mode)
 mm: 0.99 # momentum for moving average of target encoder
 warmup_steps: 100 # number of warmup steps
 total_steps: 2000 # total number of training steps

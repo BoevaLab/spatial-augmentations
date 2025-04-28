@@ -46,7 +46,8 @@ class BGRLDomainLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
         augmentation_mode: str,
-        augmentation_list: List[str],
+        augmentation_list1: List[str],
+        augmentation_list2: List[str],
         mm: int,
         warmup_steps: int,
         total_steps: int,
@@ -79,8 +80,10 @@ class BGRLDomainLitModule(LightningModule):
             Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
         augmentation_mode : str
             The graph augmentation mode to use. Options are "baseline" or "advanced".
-        augmentation_list : List[str]
-            List of graph augmentation methods to apply. Only necessary if `augmentation_mode` is "advanced".
+        augmentation_list1 : List[str]
+            List of graph augmentation methods to apply for the first view. Only necessary if in "advanced" mode.
+        augmentation_list2 : List[str]
+            List of graph augmentation methods to apply for the second view. Only necessary if in "advanced" mode.
         mm : float
             Initial momentum for the moving average update of the target encoder. Default is 0.99.
         warmup_steps : int
@@ -233,7 +236,7 @@ class BGRLDomainLitModule(LightningModule):
         """
         transform1 = get_graph_augmentation(
             self.hparams.augmentation_mode,
-            self.hparams.augmentation_list,
+            self.hparams.augmentation_list1,
             self.hparams.drop_edge_p1,
             self.hparams.drop_feat_p1,
             self.hparams.mu,
@@ -244,7 +247,7 @@ class BGRLDomainLitModule(LightningModule):
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
-            self.hparams.augmentation_list,
+            self.hparams.augmentation_list2,
             self.hparams.drop_edge_p2,
             self.hparams.drop_feat_p2,
             self.hparams.mu,

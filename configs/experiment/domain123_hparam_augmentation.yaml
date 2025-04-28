@@ -55,7 +55,8 @@ model:
 
   compile: false # compile model for faster training with pytorch 2.0
   augmentation_mode: "advanced" # augmetation mode, either baseline or advanced
-  augmentation_list: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply
+  augmentation_list1: ["DropEdges", "DropFeatures"] # list of augmentations to apply for first view
+  augmentation_list2: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply for second view
   mm: 0.97 # momentum for moving average of target encoder
   warmup_steps: 200 # number of warmup steps
   total_steps: 2997 # total number of training steps
