@@ -37,7 +37,7 @@ model:
       input_size: 50
       hidden_size: 32
       output_size: 16
-      dropout: 0.46
+      dropout: 0.29
     projector:
       input_size: ${model.net.encoder.output_size}
       output_size: ${model.net.encoder.output_size}
@@ -45,8 +45,8 @@ model:
 
   optimizer:
     _partial_: true
-    lr: 0.0004
-    weight_decay: 0.035
+    lr: 0.0003
+    weight_decay: 0.038
 
   scheduler:
     _partial_: true
@@ -55,23 +55,23 @@ model:
 
   compile: false # compile model for faster training with pytorch 2.0
   augmentation_mode: "advanced" # augmetation mode, either baseline or advanced
-  augmentation_list1: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply for first view
+  augmentation_list1: ["DropEdges", "DropFeatures", "FeatureNoise"] # list of augmentations to apply for first view
   augmentation_list2: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply for second view
-  mm: 0.96 # momentum for moving average of target encoder
+  mm: 0.91 # momentum for moving average of target encoder
   warmup_steps: 100 # number of warmup steps
   total_steps: 2997 # total number of training steps
-  spatial_regularization_strength: 0.08 # hyperparameter for the spatial regularization
+  spatial_regularization_strength: 0.02 # hyperparameter for the spatial regularization
   node_subset_sz: 5000 # number of nodes to sample for accelerated spatial regularization
-  drop_edge_p1: 0.39 # drop edge probability for first augmentation
-  drop_edge_p2: 0.29 # drop edge probability for second augmentation
-  drop_feat_p1: 0.24 # drop feature probability for first augmentation
-  drop_feat_p2: 0.33 # drop feature probability for second augmentation
+  drop_edge_p1: 0.13 # drop edge probability for first augmentation
+  drop_edge_p2: 0.27 # drop edge probability for second augmentation
+  drop_feat_p1: 0.32 # drop feature probability for first augmentation
+  drop_feat_p2: 0.25 # drop feature probability for second augmentation
   mu: 0.5 # hyperparameter for the graph augmentation
   p_lambda: 0.7 # hyperparameter for the graph augmentation
   p_rewire: 0.35 # hyperparameter for the graph augmentation
   p_shuffle: 0.35 # hyperparameter for the graph augmentation
-  spatial_noise_std: 0.05 # standard deviation of the spatial noise
-  feature_noise_std: 0.01 # standard deviation of the feature noise
+  spatial_noise_std: 0.06 # standard deviation of the spatial noise
+  feature_noise_std: 0.1 # standard deviation of the feature noise
   processed_dir: ${paths.data_dir}domain/processed_123/ # directory for processed data
 
 trainer:
