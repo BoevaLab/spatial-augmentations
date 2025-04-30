@@ -1,0 +1,83 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=domain7_hparam_augmentation
+
+defaults:
+  - override /data: spatial_omics
+  - override /model: bgrl_domain
+  - override /trainer: gpu
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+task_name: "domain7_hparam_augmentation"
+tags: ["domain7", "hparam", "augmentation"]
+validate: True
+
+data:
+  data_dir: ${paths.data_dir}domain/raw_7/
+  processed_dir: ${paths.data_dir}domain/processed_7/
+  batch_size: 8
+  num_workers: 4
+  pin_memory: False
+  min_cells: 2
+  min_genes: 10
+  augmentation_mode: "baseline"
+  lambda_param: 0.1
+  sigma_param: 0.1
+  n_pca_components: 50
+  graph_method: "knn"
+  n_neighbors: 10
+  redo_preprocess: False
+
+model:
+  net:
+    encoder:
+      input_size: 50
+      hidden_size: 32
+      output_size: 16
+      dropout: 0.5
+    projector:
+      input_size: ${model.net.encoder.output_size}
+      output_size: ${model.net.encoder.output_size}
+      hidden_size: 32
+
+  optimizer:
+    _partial_: true
+    lr: 0.005
+    weight_decay: 1e-4
+
+  scheduler:
+    _partial_: true
+    T_max: 2997
+    eta_min: 1e-7
+
+  compile: false # compile model for faster training with pytorch 2.0
+  augmentation_mode: "advanced" # augmetation mode, either baseline or advanced
+  augmentation_list1: ["DropEdges", "DropFeatures", "FeatureNoise"] # list of augmentations to apply for first view
+  augmentation_list2: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply for second view
+  mm: 0.99 # momentum for moving average of target encoder
+  warmup_steps: 100 # number of warmup steps
+  total_steps: 2997 # total number of training steps
+  spatial_regularization_strength: 0.0 # hyperparameter for the spatial regularization
+  node_subset_sz: 5000 # number of nodes to sample for accelerated spatial regularization
+  drop_edge_p1: 0.3 # drop edge probability for first augmentation
+  drop_edge_p2: 0.3 # drop edge probability for second augmentation
+  drop_feat_p1: 0.3 # drop feature probability for first augmentation
+  drop_feat_p2: 0.3 # drop feature probability for second augmentation
+  mu: 0.5 # hyperparameter for the graph augmentation
+  p_lambda: 0.7 # hyperparameter for the graph augmentation
+  p_rewire: 0.1 # hyperparameter for the graph augmentation
+  p_shuffle: 0.1 # hyperparameter for the graph augmentation
+  spatial_noise_std: 0.01 # standard deviation of the spatial noise
+  feature_noise_std: 0.01 # standard deviation of the feature noise
+  processed_dir: ${paths.data_dir}domain/processed_7/ # directory for processed data
+
+trainer:
+  min_epochs: 1 # prevents early stopping
+  max_epochs: 999
+  log_every_n_steps: 4
+  check_val_every_n_epoch: 9999
+  precision: 16
+  accumulate_grad_batches: 4
