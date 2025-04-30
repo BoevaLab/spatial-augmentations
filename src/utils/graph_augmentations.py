@@ -20,7 +20,6 @@ Functions:
 """
 
 # TODO: implement long range connection augmentation
-# TODO: implement node feature augmentation to one of the views
 # TODO: cluster-level perturbations like position perturbations only for
 #       some clusters identified by a clustering algorithm like kmeans
 # TODO: implement low-pass filter for features
@@ -740,6 +739,17 @@ class FeatureNoise:
             A string describing the transformation and its parameters.
         """
         return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
+
+
+class LowPassFilter:
+    def __init__(self, filter_strength):
+        self.filter_strength = filter_strength
+
+    def __call__(self, data):
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(filter_strength={self.filter_strength})"
 
 
 def get_graph_augmentation(
