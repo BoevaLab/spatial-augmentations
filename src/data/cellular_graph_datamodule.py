@@ -1,25 +1,25 @@
 """
-Spatial Omics Data Module.
+Cellular Graph Data Module.
 
-This module defines the `SpatialOmicsDataModule` class, which is a PyTorch Lightning DataModule
-designed for handling spatial omics data. It provides functionality for loading, preprocessing,
-and managing datasets of graphs constructed from spatial omics data.
+This module defines the `CellularGraphDataset` and `CellularGraphDataModule` classes, which are designed for handling spatial omics data represented as graphs. These classes provide functionality for loading, preprocessing, and managing datasets of graphs constructed from spatial omics data.
 
 Features:
 ---------
-- Supports preprocessing of raw spatial omics data stored in `.h5ad` files.
-- Constructs graphs using methods such as k-nearest neighbors (k-NN).
-- Saves and loads preprocessed graphs to/from disk for efficient reuse.
+- Supports preprocessing of spatial omics graphs stored in `.gpt` files.
+- Constructs k-hop subgraphs for graph-based learning tasks.
 - Provides train, validation, and test dataloaders for PyTorch Geometric models.
+- Handles class balancing and sampling strategies for subgraph generation.
 
 Classes:
 --------
-- SpatialOmicsDataModule: A Lightning DataModule for spatial omics data.
+- CellularGraphDataset: A PyTorch Geometric Dataset for managing cellular graphs.
+- CellularGraphDataModule: A PyTorch Lightning DataModule for managing the dataset and dataloaders.
 
 Usage:
 ------
->>> from src.data.spatial_omics_datamodule import SpatialOmicsDataModule
->>> datamodule = SpatialOmicsDataModule(data_dir="data/domain/raw", processed_dir="data/domain/processed")
+>>> from src.data.cellular_graph_datamodule import CellularGraphDataset, CellularGraphDataModule
+>>> dataset = CellularGraphDataset(regions, graph_dir, json_path, num_subgraphs, subgraph_size)
+>>> datamodule = CellularGraphDataModule(data_dir, processed_dir, batch_size, num_workers, ...)
 >>> datamodule.prepare_data()
 >>> datamodule.setup()
 >>> train_loader = datamodule.train_dataloader()
@@ -32,38 +32,47 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
 import torch
 from joblib import Parallel, delayed
 from lightning import LightningDataModule
 from torch.utils.data import random_split
-from torch_geometric.data import Batch, Data, Dataset
+from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import k_hop_subgraph
 
 from src.utils import RankedLogger
-from src.utils.preprocess_helpers import (
-    SpatialOmicsDataset,
-    create_graph,
-    preprocess_sample,
-    save_sample,
-)
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class CellularGraphDataset(Dataset):
     """
-    Initializes the CellularGraphDataset.
+    A PyTorch Geometric Dataset for managing cellular graphs.
 
-    Parameters:
+    This dataset handles the loading and preprocessing of cellular graphs, as well as the generation of k-hop subgraphs for graph-based learning tasks.
+
+    Attributes:
     -----------
     regions : list
         A list of region identifiers (e.g., sample names) that correspond to the dataset.
-        Each identifier is used to locate the corresponding graph file in `graph_dir`.
     graph_dir : str
-        Path to the directory where graph files are stored. Each graph file should be named
-        using the region identifier with a `.gpt` extension (e.g., `region1.gpt`).
+        Path to the directory where graph files are stored.
+    json_path : str
+        Path to the directory containing JSON files for cell type mapping, frequency, and biomarkers.
+    num_subgraphs : int
+        The number of subgraphs to retrieve for each region.
+    subgraph_size : int
+        The size of each subgraph (k-hop).
+    sampling_avoid_unassigned : bool
+        Whether to avoid sampling unassigned cells during subgraph sampling.
+    unassigned_cell_type : str
+        The cell type to be considered as unassigned.
+    seed : int
+        Random seed for reproducibility.
+    sampling_freq : torch.Tensor
+        Sampling frequency for each cell type, used for balanced subgraph sampling.
+    subgraph_center_nodes : torch.Tensor
+        Precomputed tensor containing the center nodes for each region and subgraph.
     """
 
     def __init__(
@@ -84,19 +93,18 @@ class CellularGraphDataset(Dataset):
         -----------
         regions : list
             A list of region identifiers (e.g., sample names) that correspond to the dataset.
-            Each identifier is used to locate the corresponding graph file in `graph_dir`.
         graph_dir : str
-            Path to the directory where graph files are stored. Each graph file should be named
-            using the region identifier with a `.gpt` extension (e.g., `region1.gpt`).
+            Path to the directory where graph files are stored.
+        json_path : str
+            Path to the directory containing JSON files for cell type mapping, frequency, and biomarkers.
         num_subgraphs : int
             The number of subgraphs to retrieve for each region.
         subgraph_size : int
-            The size of each subgraph (subgraph_size-hop).
+            The size of each subgraph (k-hop).
         sampling_avoid_unassigned : bool, optional
             Whether to avoid sampling unassigned cells during subgraph sampling. Default is True.
         unassigned_cell_type : str, optional
-            The cell type to be considered as unassigned. If `sampling_avoid_unassigned` is True,
-            the sampling frequency for this cell type will be set to 0. Default is "Unassigned".
+            The cell type to be considered as unassigned. Default is "Unassigned".
         seed : int, optional
             Random seed for reproducibility. Default is 42.
         """
@@ -150,18 +158,19 @@ class CellularGraphDataset(Dataset):
 
     def len(self) -> int:
         """
-        Returns the total number of regions (graphs) in the dataset.
+        Returns the total number of subgraphs in the dataset.
 
         Returns:
         --------
         int
-            The number of regions (graphs) available in the dataset.
+            The total number of subgraphs (regions * num_subgraphs).
         """
         return len(self.regions) * self.num_subgraphs
 
     def pick_center_node(self, graph: Data) -> int:
         """
-        Randomly selects a center node from the graph based on the sampling frequency.
+        Randomly selects a center node from the graph based on the sampling frequency
+        to ensure balanced sampling of cell types.
 
         Parameters:
         -----------
@@ -186,7 +195,7 @@ class CellularGraphDataset(Dataset):
         Parameters:
         -----------
         idx : int
-            The index of the region to retrieve. This index corresponds to an entry in the `regions` list.
+            The index of the region to retrieve.
 
         Returns:
         --------
@@ -212,7 +221,7 @@ class CellularGraphDataset(Dataset):
         Parameters:
         -----------
         idx : int
-            The index of the region to retrieve. This index corresponds to an entry in the `regions` list.
+            The index of the region to retrieve.
 
         Returns:
         --------
@@ -264,7 +273,7 @@ class CellularGraphDataset(Dataset):
         Parameters:
         -----------
         idx : int
-            The index of the subgraph to retrieve. This index corresponds to an entry in the `regions` list.
+            The index of the subgraph to retrieve.
 
         Returns:
         --------
@@ -303,23 +312,22 @@ class CellularGraphDataset(Dataset):
 
 class CellularGraphDataModule(LightningDataModule):
     """
-    A PyTorch Lightning DataModule for spatial omics data.
+    A PyTorch Lightning DataModule for managing cellular graph datasets.
 
-    This class handles the loading, preprocessing, and management of spatial omics datasets.
-    It supports graph construction from spatial omics data and provides train, validation, and
-    test dataloaders for PyTorch Geometric models.
+    This class handles the loading, preprocessing, and management of cellular graph datasets.
+    It provides train, validation, and test dataloaders for PyTorch Geometric models.
 
     Attributes:
     -----------
     batch_size_per_device : int
         Batch size for dataloaders, adjusted for distributed training.
-    dataset : SpatialOmicsDataset
+    dataset : CellularGraphDataset
         Dataset object containing graphs and metadata.
-    train_dataset : SpatialOmicsDataset
+    train_dataset : CellularGraphDataset
         Dataset used for training.
-    val_dataset : SpatialOmicsDataset
+    val_dataset : CellularGraphDataset
         Dataset used for validation.
-    test_dataset : SpatialOmicsDataset
+    test_dataset : CellularGraphDataset
         Dataset used for testing.
     """
 
@@ -410,22 +418,21 @@ class CellularGraphDataModule(LightningDataModule):
         self, file_path: str, graph_tasks: list, targets: pd.DataFrame, class_weights: torch.Tensor
     ) -> None:
         """
-        Process a single spatial omics sample.
+        Processes a single cellular graph.
 
-        This function reads a spatial omics sample from an `.h5ad` file, applies preprocessing steps
-        (e.g., filtering, normalization, PCA, and augmentation), constructs a graph representation
-        of the sample, and saves the preprocessed data and graph to disk.
+        This method reads a cellular graph from a `.gpt` file, appends target values
+        and class weights to the graph, and saves the processed graph to disk.
 
         Parameters:
         -----------
         file_path : str
-            The path to the `.h5ad` file containing the raw spatial omics data for the sample.
+            The path to the `.gpt` file containing the raw spatial omics data for the sample.
         graph_tasks : list
             A list of tasks for which the graph is constructed. Each task corresponds to a column
             in the targets DataFrame.
         targets : pd.DataFrame
             A DataFrame containing the target values for each sample. The DataFrame should have
-            a column named "REGION_ID" that matches the sample name in the `.h5ad` file.
+            a column named "REGION_ID" that matches the sample name in the `.gpt` file.
         class_weights : torch.Tensor
             A tensor containing the class weights for each task. This is used to balance the dataset
             during training.
@@ -437,19 +444,14 @@ class CellularGraphDataModule(LightningDataModule):
 
         Side Effects:
         -------------
-        - Saves the preprocessed AnnData object and its corresponding graph to the directory specified
-        in `self.hparams.processed_dir`.
-
-        Notes:
-        ------
-        - If the sample has already been preprocessed (indicated by the presence of "X_pca" in
-        `adata.obsm`), preprocessing is skipped.
-        - The graph is constructed using the method and parameters specified in `self.hparams`.
+        - Saves the processed graph to the directory specified in `self.hparams.processed_dir`.
 
         Raises:
         -------
         FileNotFoundError
             If the specified file does not exist.
+        ValueError
+            If a task is not found in the targets DataFrame or contains non-numeric values.
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} does not exist. Please provide the data.")
@@ -480,11 +482,11 @@ class CellularGraphDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None) -> None:
         """
-        Load and preprocess data.
+        Load and preprocess data, and split into train, validation, and test datasets.
 
-        This method loads preprocessed graphs from disk if they exist. If not, it preprocesses
-        the raw data, constructs graphs, and saves the preprocessed graphs to disk. It also
-        splits the dataset into train, validation, and test datasets.
+        This method loads preprocessed graphs from disk if they exist. If not, it processes
+        the graphs, and saves the processed graphs to disk. It also splits the dataset into
+        train, validation, and test datasets.
 
         Parameters:
         -----------
@@ -495,6 +497,10 @@ class CellularGraphDataModule(LightningDataModule):
         -------
         RuntimeError
             If the batch size is not divisible by the number of devices in distributed training.
+        FileNotFoundError
+            If the targets file or raw data files are missing.
+        ValueError
+            If a task in `graph_tasks` is not found in the targets DataFrame or contains invalid values.
         """
         # divide batch size by the number of devices.
         if self.trainer is not None:
