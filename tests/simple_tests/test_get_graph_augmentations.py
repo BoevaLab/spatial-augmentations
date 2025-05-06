@@ -4,7 +4,7 @@ from torch_geometric.data import Data
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.data.spatial_omics_datamodule import SpatialOmicsDataModule
-from src.utils.graph_augmentations import get_graph_augmentation
+from src.utils.graph_augmentations_domain import get_graph_augmentation
 
 
 def test_get_graph_augmentation():

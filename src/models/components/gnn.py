@@ -577,7 +577,7 @@ class GNN(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.feat_embedding.weight.data)
 
         self.gnns = torch.nn.ModuleList()
-        for layer in range(num_layer):
+        for _ in range(num_layer):
             if gnn_type == "gin":
                 self.gnns.append(GINConv(emb_dim, aggr="add"))
             elif gnn_type == "gcn":
@@ -588,7 +588,7 @@ class GNN(torch.nn.Module):
                 self.gnns.append(GraphSAGEConv(emb_dim))
 
         self.batch_norms = torch.nn.ModuleList()
-        for layer in range(num_layer):
+        for _ in range(num_layer):
             self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim))  # TODO: make modular
             # self.batch_norms.append(GraphNorm(emb_dim))
 
