@@ -1,7 +1,9 @@
 """
 Cellular Graph Data Module.
 
-This module defines the `CellularGraphDataset` and `CellularGraphDataModule` classes, which are designed for handling spatial omics data represented as graphs. These classes provide functionality for loading, preprocessing, and managing datasets of graphs constructed from spatial omics data.
+This module defines the `CellularGraphDataset` and `CellularGraphDataModule` classes, which are designed for handling spatial
+omics data represented as graphs. These classes provide functionality for loading, preprocessing, and managing datasets of
+graphs constructed from spatial omics data.
 
 Features:
 ---------
@@ -9,6 +11,7 @@ Features:
 - Constructs k-hop subgraphs for graph-based learning tasks.
 - Provides train, validation, and test dataloaders for PyTorch Geometric models.
 - Handles class balancing and sampling strategies for subgraph generation.
+- Supports distributed training with PyTorch Lightning.
 
 Classes:
 --------
@@ -18,14 +21,14 @@ Classes:
 Usage:
 ------
 >>> from src.data.cellular_graph_datamodule import CellularGraphDataset, CellularGraphDataModule
->>> dataset = CellularGraphDataset(regions, graph_dir, json_path, num_subgraphs, subgraph_size)
->>> datamodule = CellularGraphDataModule(data_dir, processed_dir, batch_size, num_workers, ...)
+>>> dataset = CellularGraphDataset(regions, graph_dir, json_path, subgraph_size, batch_size, num_iterations, training)
+>>> datamodule = CellularGraphDataModule(mode, data_dir, processed_dir, batch_size, num_workers, ...)
 >>> datamodule.prepare_data()
 >>> datamodule.setup()
 >>> train_loader = datamodule.train_dataloader()
 """
 
-import gc
+import copy
 import json
 import os
 from typing import Any, Dict, Optional
@@ -49,7 +52,9 @@ class CellularGraphDataset(Dataset):
     """
     A PyTorch Geometric Dataset for managing cellular graphs.
 
-    This dataset handles the loading and preprocessing of cellular graphs, as well as the generation of k-hop subgraphs for graph-based learning tasks.
+    This dataset handles the loading and preprocessing of cellular graphs, as well as the generation of k-hop subgraphs
+    for graph-based learning tasks. It supports balanced sampling of subgraphs based on cell type frequencies and
+    provides flexibility for training and evaluation modes.
 
     Attributes:
     -----------
@@ -59,10 +64,14 @@ class CellularGraphDataset(Dataset):
         Path to the directory where graph files are stored.
     json_path : str
         Path to the directory containing JSON files for cell type mapping, frequency, and biomarkers.
-    num_subgraphs : int
-        The number of subgraphs to retrieve for each region.
     subgraph_size : int
         The size of each subgraph (k-hop).
+    batch_size : int
+        The batch size for subgraph sampling.
+    num_iterations : int
+        The number of iterations for subgraph sampling.
+    training : bool
+        Whether the dataset is used for training or evaluation.
     sampling_avoid_unassigned : bool
         Whether to avoid sampling unassigned cells during subgraph sampling.
     unassigned_cell_type : str
@@ -71,8 +80,6 @@ class CellularGraphDataset(Dataset):
         Random seed for reproducibility.
     sampling_freq : torch.Tensor
         Sampling frequency for each cell type, used for balanced subgraph sampling.
-    subgraph_center_nodes : torch.Tensor
-        Precomputed tensor containing the center nodes for each region and subgraph.
     """
 
     def __init__(
@@ -80,8 +87,10 @@ class CellularGraphDataset(Dataset):
         regions: list,
         graph_dir: str,
         json_path: str,
-        num_subgraphs: int,
         subgraph_size: int,
+        batch_size: int,
+        num_iterations: int,
+        training: bool,
         sampling_avoid_unassigned: bool = True,
         unassigned_cell_type: str = "Unassigned",
         seed: int = 42,
@@ -97,10 +106,14 @@ class CellularGraphDataset(Dataset):
             Path to the directory where graph files are stored.
         json_path : str
             Path to the directory containing JSON files for cell type mapping, frequency, and biomarkers.
-        num_subgraphs : int
-            The number of subgraphs to retrieve for each region.
         subgraph_size : int
             The size of each subgraph (k-hop).
+        batch_size : int
+            The batch size for subgraph sampling.
+        num_iterations : int
+            The number of iterations for subgraph sampling.
+        training : bool
+            Whether the dataset is used for training or evaluation.
         sampling_avoid_unassigned : bool, optional
             Whether to avoid sampling unassigned cells during subgraph sampling. Default is True.
         unassigned_cell_type : str, optional
@@ -109,10 +122,16 @@ class CellularGraphDataset(Dataset):
             Random seed for reproducibility. Default is 42.
         """
         super().__init__()
+        self.training = training
 
         # initinalize regions and graph location
         self.regions = regions
         self.graph_dir = graph_dir
+
+        # initialize subgraph parameters
+        self.subgraph_size = subgraph_size
+        self.num_iterations = num_iterations
+        self.batch_size = batch_size
 
         # initinalize cell type mapping, frequency, and biomarkers
         ct_mapping_path = os.path.join(json_path, "cell_type_mapping.json")
@@ -125,10 +144,6 @@ class CellularGraphDataset(Dataset):
         with open(biomarkers_path) as f:
             self.biormarkers = json.load(f)
 
-        # initinalize subgraph parameters
-        self.num_subgraphs = num_subgraphs
-        self.subgraph_size = subgraph_size
-
         # sampling frequency for each cell type for subgraph sampling
         self.sampling_freq = {
             self.cell_type_mapping[ct]: 1.0 / np.log(self.cell_type_freq[ct] + 1 + 1e-5)
@@ -137,14 +152,6 @@ class CellularGraphDataset(Dataset):
         self.sampling_freq = torch.from_numpy(
             np.array([self.sampling_freq[i] for i in range(len(self.sampling_freq))])
         )
-
-        # initialize subgraph tensor containing the center nodes for each region
-        self.subgraph_center_nodes = torch.zeros(
-            (len(self.regions), self.num_subgraphs), dtype=torch.long
-        )
-        for i, region in enumerate(self.regions):
-            for j in range(self.num_subgraphs):
-                self.subgraph_center_nodes[i, j] = self.pick_center_node(self.get_graph(i))
 
         # optionally avoid sampling unassigned cells
         self.unassigned_cell_type = unassigned_cell_type
@@ -158,14 +165,18 @@ class CellularGraphDataset(Dataset):
 
     def len(self) -> int:
         """
-        Returns the total number of subgraphs in the dataset.
+        Returns the length of the dataset.
 
         Returns:
         --------
         int
-            The total number of subgraphs (regions * num_subgraphs).
+            If training, it returns the number of subgraphs to be sampled (which batch_size * num_iterations);
+            otherwise, it returns the number of regions in the dataset.
         """
-        return len(self.regions) * self.num_subgraphs
+        if self.training:
+            return self.batch_size * self.num_iterations
+        else:
+            return len(self.regions)
 
     def pick_center_node(self, graph: Data) -> int:
         """
@@ -182,10 +193,19 @@ class CellularGraphDataset(Dataset):
         int
             The index of the selected center node.
         """
+        # initialize a global random state if it doesn't exist
+        if not hasattr(self, "_global_random_state"):
+            self._global_random_state = np.random.RandomState(self.seed)
+
+        # compute sampling frequencies
         cell_types = graph.x[:, 0].long()
         freq = self.sampling_freq.gather(0, cell_types)
         freq = freq / freq.sum()
-        center_node_ind = int(np.random.choice(np.arange(len(freq)), p=freq.cpu().data.numpy()))
+
+        # randomly select a center node
+        center_node_ind = int(
+            self._global_random_state.choice(np.arange(len(freq)), p=freq.cpu().data.numpy())
+        )
         return center_node_ind
 
     def get_graph(self, idx: int) -> Data:
@@ -214,9 +234,9 @@ class CellularGraphDataset(Dataset):
         graph = torch.load(graph_path, weights_only=False)  # nosec B614
         return graph
 
-    def get_subgraphs(self, idx: int) -> list:
+    def get_all_subgraphs(self, idx: int) -> list:
         """
-        Loads and returns a list of subgraphs for the region at the specified index.
+        Loads and returns a list of all subgraphs for the region at the specified index.
 
         Parameters:
         -----------
@@ -233,17 +253,9 @@ class CellularGraphDataset(Dataset):
 
         # sample subgraphs
         subgraphs = []
-        np.random.seed(self.seed)
-        for _ in range(self.num_subgraphs):
-            # sample a random center node (cell type balanced)
-            cell_types = graph.x[:, 0].long()
-            freq = self.sampling_freq.gather(0, cell_types)
-            freq = freq / freq.sum()
-            center_node_ind = int(
-                np.random.choice(np.arange(len(freq)), p=freq.cpu().data.numpy())
-            )
-
+        for node in range(graph.num_nodes):
             # sample a k-hop subgraph around the center node
+            center_node_ind = int(node)
             node_idx, edge_index, _, edge_mask = k_hop_subgraph(
                 center_node_ind,
                 self.subgraph_size,
@@ -268,25 +280,28 @@ class CellularGraphDataset(Dataset):
 
     def get_subgraph(self, idx: int) -> Data:
         """
-        Loads and returns a single subgraph for the region at the specified index.
+        Samples and returns a single k-hop subgraph for a randomly selected region.
 
         Parameters:
         -----------
         idx : int
-            The index of the subgraph to retrieve.
+            The index of the subgraph to retrieve (used for iteration).
 
         Returns:
         --------
         torch_geometric.data.Data
-            A PyTorch Geometric `Data` object representing the subgraph for the specified region.
+            A PyTorch Geometric `Data` object representing the sampled subgraph.
         """
-        # get center node index and full graph to sample from
-        center_node_ind = int(
-            self.subgraph_center_nodes[idx // self.num_subgraphs, idx % self.num_subgraphs]
-        )
-        graph = self.get_graph(idx // self.num_subgraphs)
+        # initialize a global random state if it doesn't exist
+        if not hasattr(self, "_global_random_state"):
+            self._global_random_state = np.random.RandomState(self.seed)
 
-        # sample a k-hop subgraph around the center node
+        # randomly select a region and load its graph
+        region_idx = self._global_random_state.randint(0, len(self.regions))
+        graph = self.get_graph(region_idx)
+
+        # randomly select a center node from the graph and build a k-hop subgraph
+        center_node_ind = self.pick_center_node(graph)
         node_idx, edge_index, _, edge_mask = k_hop_subgraph(
             center_node_ind,
             self.subgraph_size,
@@ -295,7 +310,6 @@ class CellularGraphDataset(Dataset):
             num_nodes=graph.num_nodes,
         )
 
-        # create the subgraph and append it to the list of subgraphs
         return Data(
             x=graph.x[node_idx],
             edge_index=edge_index,
@@ -307,7 +321,23 @@ class CellularGraphDataset(Dataset):
         )
 
     def get(self, idx: int) -> Data:
-        return self.get_subgraph(idx)
+        """
+        Retrieves data based on the mode (training or evaluation).
+
+        Parameters:
+        -----------
+        idx : int
+            The index of the data to retrieve.
+
+        Returns:
+        --------
+        torch_geometric.data.Data or list
+            If training, returns a single k-hop subgraph. If evaluation, returns all subgraphs for the region.
+        """
+        if self.training:
+            return self.get_subgraph(idx)
+        else:
+            return self.get_all_subgraphs(idx)
 
 
 class CellularGraphDataModule(LightningDataModule):
@@ -315,10 +345,39 @@ class CellularGraphDataModule(LightningDataModule):
     A PyTorch Lightning DataModule for managing cellular graph datasets.
 
     This class handles the loading, preprocessing, and management of cellular graph datasets.
-    It provides train, validation, and test dataloaders for PyTorch Geometric models.
+    It provides train, validation, and test dataloaders for PyTorch Geometric models and supports
+    distributed training.
 
     Attributes:
     -----------
+    mode : str
+        Mode of operation (e.g., "pretraining", "finetuning", "evaluation").
+    data_dir : str
+        Directory containing raw spatial omics data files.
+    processed_dir : str
+        Directory to save/load preprocessed graphs.
+    batch_size : int
+        Batch size for dataloaders.
+    num_workers : int
+        Number of workers for data loading.
+    pin_memory : bool
+        Whether to pin memory for DataLoader.
+    json_path : str
+        Path to the JSON file containing cell type mapping and frequency.
+    subgraph_size : int
+        Size of each subgraph (k-hop).
+    num_iterations : int
+        Number of iterations for subgraph sampling.
+    sampling_avoid_unassigned : bool
+        Whether to avoid sampling unassigned cells during subgraph sampling.
+    unassigned_cell_type : str
+        Cell type to be considered as unassigned.
+    graph_tasks : list
+        List of tasks for which the graph is constructed.
+    redo_preprocess : bool
+        Whether to redo preprocessing even if preprocessed data exists.
+    seed : int
+        Random seed for reproducibility.
     batch_size_per_device : int
         Batch size for dataloaders, adjusted for distributed training.
     dataset : CellularGraphDataset
@@ -333,14 +392,15 @@ class CellularGraphDataModule(LightningDataModule):
 
     def __init__(
         self,
+        mode: str,
         data_dir: str,
         processed_dir: str,
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
         json_path: str,
-        num_subgraphs: int,
         subgraph_size: int,
+        num_iterations: int,
         sampling_avoid_unassigned: bool,
         unassigned_cell_type: str,
         graph_tasks: list,
@@ -348,10 +408,12 @@ class CellularGraphDataModule(LightningDataModule):
         seed: int,
     ) -> None:
         """
-        Initialize the SpatialOmicsDataModule.
+        Initialize the CellularGraphDataModule.
 
         Parameters:
         -----------
+        mode : str
+            Mode of operation (e.g., "pretraining", "finetuning", "evaluation").
         data_dir : str
             Directory containing raw spatial omics data files.
         processed_dir : str
@@ -364,10 +426,10 @@ class CellularGraphDataModule(LightningDataModule):
             Whether to pin memory for DataLoader.
         json_path : str
             Path to the JSON file containing cell type mapping and frequency.
-        num_subgraphs : int
-            Number of subgraphs to sample from each region.
         subgraph_size : int
             Size of each subgraph (k-hop).
+        num_iterations : int
+            Number of iterations for subgraph sampling.
         sampling_avoid_unassigned : bool
             Whether to avoid sampling unassigned cells during subgraph sampling.
         unassigned_cell_type : str
@@ -378,9 +440,23 @@ class CellularGraphDataModule(LightningDataModule):
             Whether to redo preprocessing even if preprocessed data exists.
         seed : int
             Random seed for reproducibility.
+
+        Raises:
+        -------
+        ValueError
+            If the mode is not one of "pretraining", "finetuning", or "evaluation".
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
+
+        if mode in ["pretraining", "finetuning"]:
+            self.hparams.training = True
+        elif mode in ["evaluation"]:
+            self.hparams.training = False
+        else:
+            raise ValueError(
+                f"Invalid mode {mode}. Supported modes are 'pretraining', 'finetuning', and 'evaluation'."
+            )
 
         self.batch_size_per_device = batch_size
 
@@ -578,8 +654,10 @@ class CellularGraphDataModule(LightningDataModule):
                     regions=regions,
                     graph_dir=self.hparams.processed_dir,
                     json_path=self.hparams.json_path,
-                    num_subgraphs=self.hparams.num_subgraphs,
                     subgraph_size=self.hparams.subgraph_size,
+                    batch_size=self.hparams.batch_size,
+                    num_iterations=self.hparams.num_iterations,
+                    training=self.hparams.training,
                     sampling_avoid_unassigned=self.hparams.sampling_avoid_unassigned,
                     unassigned_cell_type=self.hparams.unassigned_cell_type,
                     seed=self.hparams.seed,
@@ -587,16 +665,50 @@ class CellularGraphDataModule(LightningDataModule):
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
 
-        # keep all data for training since no labels are used during training
-        self.train_dataset = self.dataset
+        # load regions for training and validation
+        train_region_path = os.path.join(self.hparams.json_path, "train_regions.json")
+        val_region_path = os.path.join(self.hparams.json_path, "valid_regions.json")
+        with open(train_region_path) as f:
+            train_regions = json.load(f)
+        with open(val_region_path) as f:
+            val_test_regions = json.load(f)
 
-        # split data into validation (40) and test (60) sets (here, labels are used)
-        generator = torch.Generator().manual_seed(self.hparams.seed)
-        val_size = int(0.4 * len(self.dataset))
-        test_size = len(self.dataset) - val_size
-        self.val_dataset, self.test_dataset = random_split(
-            self.dataset, [val_size, test_size], generator=generator
-        )
+        # set the train dataset (use all data for pretraining, use training regions for finetuning)
+        # during evaluation, no training data is used
+        if self.hparams.mode == "pretraining":
+            self.train_dataset = self.dataset
+        elif self.hparams.mode == "finetuning":
+            self.train_dataset = copy.deepcopy(self.dataset)
+            self.train_dataset.regions = train_regions
+            self.train_dataset.training = True
+        else:
+            self.train_dataset = None
+
+        # set the validation and test datasets (split into 50/50)
+        # during pretraining, no validation data is used
+        if self.hparams.mode == "pretraining":
+            self.val_dataset = None
+            self.test_dataset = None
+        else:
+            # split the validation and test regions into 50/50
+            generator = torch.Generator().manual_seed(self.hparams.seed)
+            val_size = int(0.5 * len(val_test_regions))
+            test_size = len(val_test_regions) - val_size
+            val_regions, test_regions = random_split(
+                val_test_regions, [val_size, test_size], generator=generator
+            )
+
+            # set the validation dataset
+            self.val_dataset = copy.deepcopy(self.dataset)
+            self.val_dataset.regions = val_regions
+            self.val_dataset.training = False
+            self.val_dataset.batch_size = 1
+
+            # set the test dataset
+            self.test_dataset = copy.deepcopy(self.dataset)
+            self.test_dataset.regions = test_regions
+            self.test_dataset.training = False
+            self.test_dataset.batch_size = 1
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -627,7 +739,7 @@ class CellularGraphDataModule(LightningDataModule):
         """
         return DataLoader(
             dataset=self.val_dataset,
-            batch_size=self.batch_size_per_device,
+            batch_size=1,
             num_workers=self.hparams.num_workers,
             persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
@@ -645,7 +757,7 @@ class CellularGraphDataModule(LightningDataModule):
         """
         return DataLoader(
             dataset=self.test_dataset,
-            batch_size=self.batch_size_per_device,
+            batch_size=1,
             num_workers=self.hparams.num_workers,
             persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
