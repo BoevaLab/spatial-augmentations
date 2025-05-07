@@ -13,4 +13,4 @@ source "$HOME/.bashrc"
 conda activate augmentation
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-srun python src/train.py -m hparams_search=domain7_baseline experiment=domain7_hparam_baseline
+srun python src/train_domain.py -m hparams_search=domain7_baseline experiment=domain7_hparam_baseline

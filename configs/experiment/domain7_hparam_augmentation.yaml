@@ -50,7 +50,7 @@ model:
 
   scheduler:
     _partial_: true
-    T_max: 2997
+    T_max: 25974
     eta_min: 1e-7
 
   compile: false # compile model for faster training with pytorch 2.0
@@ -59,7 +59,7 @@ model:
   augmentation_list2: ["DropEdges", "DropFeatures", "SpatialNoise"] # list of augmentations to apply for second view
   mm: 0.99 # momentum for moving average of target encoder
   warmup_steps: 100 # number of warmup steps
-  total_steps: 2997 # total number of training steps
+  total_steps: 25974 # total number of training steps
   spatial_regularization_strength: 0.0 # hyperparameter for the spatial regularization
   node_subset_sz: 5000 # number of nodes to sample for accelerated spatial regularization
   drop_edge_p1: 0.3 # drop edge probability for first augmentation
