@@ -91,6 +91,16 @@ class CellularGraphDataset(Dataset):
         batch_size: int,
         num_iterations: int,
         training: bool,
+        node_features: list = [
+            "cell_type",
+            "size",
+            "biomarker_expression",
+            "neighborhood_composition",
+            "center_coord",
+        ],
+        edge_features: list = ["edge_type", "distance"],
+        node_features_to_use: list = ["cell_type", "size"],
+        edge_features_to_use: list = ["edge_type"],
         sampling_avoid_unassigned: bool = True,
         unassigned_cell_type: str = "Unassigned",
         seed: int = 42,
@@ -114,6 +124,14 @@ class CellularGraphDataset(Dataset):
             The number of iterations for subgraph sampling.
         training : bool
             Whether the dataset is used for training or evaluation.
+        node_features : list, optional
+            List of node features to be included in the dataset. Default is ["cell_type", "expression", "neighborhood_composition", "center_coord"].
+        edge_features : list, optional
+            List of edge features to be included in the dataset. Default is ["edge_type", "distance"].
+        node_features_to_use : list, optional
+            List of node features to be used by the model. Default is ["cell_type", "size"].
+        edge_features_to_use : list, optional
+            List of edge features to be used by the model. Default is ["edge_type"].
         sampling_avoid_unassigned : bool, optional
             Whether to avoid sampling unassigned cells during subgraph sampling. Default is True.
         unassigned_cell_type : str, optional
@@ -142,7 +160,7 @@ class CellularGraphDataset(Dataset):
         with open(ct_freq_path) as f:
             self.cell_type_freq = json.load(f)
         with open(biomarkers_path) as f:
-            self.biormarkers = json.load(f)
+            self.biomarkers = json.load(f)
 
         # sampling frequency for each cell type for subgraph sampling
         self.sampling_freq = {
@@ -159,6 +177,24 @@ class CellularGraphDataset(Dataset):
             self.sampling_freq[self.cell_type_mapping[unassigned_cell_type]] = 0.0
         if "Unknown" in self.cell_type_mapping.keys():
             self.sampling_freq[self.cell_type_mapping["Unknown"]] = 0.0
+
+        # initialize node features and edge features
+        self.node_features = node_features
+        self.edge_features = edge_features
+        if "cell_type" in self.node_features:
+            assert (
+                self.node_features.index("cell_type") == 0
+            ), "cell_type must be the first node feature"
+        if "edge_type" in self.edge_features:
+            assert (
+                self.edge_features.index("edge_type") == 0
+            ), "edge_type must be the first edge feature"
+        self.node_features_to_use = node_features_to_use
+        self.edge_features_to_use = edge_features_to_use
+
+        # get the feature names
+        self.node_feature_names = self.get_feature_names(node_features)
+        self.edge_feature_names = self.get_feature_names(edge_features)
 
         # set the seed for reproducibility
         self.seed = seed
@@ -208,6 +244,60 @@ class CellularGraphDataset(Dataset):
         )
         return center_node_ind
 
+    def get_feature_names(self, features):
+        """ """
+        feature_names = []
+        for feature in features:
+            if feature in ["distance", "cell_type", "edge_type", "size"]:
+                # feature "cell_type", "edge_type" will be a single integer indice
+                # feature "distance", "size" will be a single float value
+                feature_names.append(feature)
+            elif feature == "center_coord":
+                # feature "center_coord" will be a tuple of two float values
+                feature_names.extend(["center_coord-x", "center_coord-y"])
+            elif feature == "biomarker_expression":
+                # feature "biomarker_expression" will contain a list of biomarker expression values
+                feature_names.extend(["biomarker_expression-%s" % bm for bm in self.biomarkers])
+            elif feature == "neighborhood_composition":
+                # feature "neighborhood_composition" will contain a composition vector of the immediate neighbors
+                # the vector will have the same length as the number of unique cell types
+                feature_names.extend(
+                    [
+                        "neighborhood_composition-%s" % ct
+                        for ct in sorted(
+                            self.cell_type_mapping.keys(), key=lambda x: self.cell_type_mapping[x]
+                        )
+                    ]
+                )
+            else:
+                log.warning("Using additional feature: %s" % feature)
+                feature_names.append(feature)
+        return feature_names
+
+    def mask_features(self, graph: Data) -> None:
+        """
+        Masks the node and edge features that should not be used by the model.
+
+        Parameters:
+        -----------
+        graph : Data
+            The graph to be masked.
+
+        Side Effects:
+        -----------
+        - Modifies the node features and edge features of the graph in place.
+        - Sets the features that should not be used by the model to zero.
+        """
+        # mask node features that should not be used by the model
+        for name in self.node_feature_names:
+            if all(not name.startswith(feature) for feature in self.node_features_to_use):
+                graph.x[:, self.node_feature_names.index(name)] = 0
+
+        # mask edge features that should not be used by the model
+        for name in self.edge_feature_names:
+            if all(not name.startswith(feature) for feature in self.edge_features_to_use):
+                graph.edge_attr[:, self.edge_feature_names.index(name)] = 0
+
     def get_graph(self, idx: int) -> Data:
         """
         Loads and returns the graph data for the region at the specified index.
@@ -232,6 +322,7 @@ class CellularGraphDataset(Dataset):
         if not os.path.exists(graph_path):
             raise FileNotFoundError(f"Graph file not found: {graph_path}")
         graph = torch.load(graph_path, weights_only=False)  # nosec B614
+        self.mask_features(graph)
         return graph
 
     def get_all_subgraphs(self, idx: int) -> list:
@@ -401,6 +492,10 @@ class CellularGraphDataModule(LightningDataModule):
         json_path: str,
         subgraph_size: int,
         num_iterations: int,
+        node_features: list,
+        edge_features: list,
+        node_features_to_use: list,
+        edge_features_to_use: list,
         sampling_avoid_unassigned: bool,
         unassigned_cell_type: str,
         graph_tasks: list,
@@ -430,6 +525,14 @@ class CellularGraphDataModule(LightningDataModule):
             Size of each subgraph (k-hop).
         num_iterations : int
             Number of iterations for subgraph sampling.
+        node_features : list
+            List of node features to be included in the dataset.
+        edge_features : list
+            List of edge features to be included in the dataset.
+        node_features_to_use : list
+            List of node features to be used by the model.
+        edge_features_to_use : list
+            List of edge features to be used by the model.
         sampling_avoid_unassigned : bool
             Whether to avoid sampling unassigned cells during subgraph sampling.
         unassigned_cell_type : str
@@ -658,6 +761,10 @@ class CellularGraphDataModule(LightningDataModule):
                     batch_size=self.hparams.batch_size,
                     num_iterations=self.hparams.num_iterations,
                     training=self.hparams.training,
+                    node_features=self.hparams.node_features,
+                    edge_features=self.hparams.edge_features,
+                    node_features_to_use=self.hparams.node_features_to_use,
+                    edge_features_to_use=self.hparams.edge_features_to_use,
                     sampling_avoid_unassigned=self.hparams.sampling_avoid_unassigned,
                     unassigned_cell_type=self.hparams.unassigned_cell_type,
                     seed=self.hparams.seed,
