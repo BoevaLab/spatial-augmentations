@@ -67,8 +67,8 @@ from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.utils import add_self_loops, softmax
 from torch_scatter import scatter_add
 
-NUM_NODE_TYPE = 20  # Default value
-NUM_EDGE_TYPE = 4  # neighbor, distant, self
+NUM_NODE_TYPE = 30  # number of cell types
+NUM_EDGE_TYPE = 2  # near, distant
 
 
 class GINConv(MessagePassing):
@@ -556,10 +556,10 @@ class GNN(torch.nn.Module):
         self,
         num_layer=3,
         num_node_type=NUM_NODE_TYPE,
-        num_feat=38,
+        num_feat=76,
         emb_dim=256,
         node_embedding_output="last",
-        drop_ratio=0,
+        drop_ratio=0.25,
         gnn_type="gin",
     ):
         super().__init__()
@@ -717,22 +717,20 @@ class GNN_pred(torch.nn.Module):
 
     def __init__(
         self,
-        num_layer=2,
+        num_layer=3,
         num_node_type=NUM_NODE_TYPE,
-        num_feat=38,
+        num_feat=76,
         emb_dim=256,
         num_additional_feat=0,
-        num_node_tasks=15,
-        num_graph_tasks=2,
+        num_graph_tasks=1,
         node_embedding_output="last",
-        drop_ratio=0,
-        graph_pooling="mean",
+        drop_ratio=0.25,
+        graph_pooling="max",
         gnn_type="gin",
     ):
         super().__init__()
         self.drop_ratio = drop_ratio
         self.emb_dim = emb_dim
-        self.num_node_tasks = num_node_tasks
         self.num_graph_tasks = num_graph_tasks
         self.num_layer = num_layer
 
@@ -746,7 +744,7 @@ class GNN_pred(torch.nn.Module):
             gnn_type=gnn_type,
         )
 
-        # Different kind of graph pooling
+        # different kind of graph pooling
         if graph_pooling == "sum":
             self.pool = global_add_pool
         elif graph_pooling == "mean":
@@ -769,7 +767,7 @@ class GNN_pred(torch.nn.Module):
         else:
             raise ValueError("Invalid graph pooling type.")
 
-        # For node and graph predictions
+        # for node and graph predictions
         self.mult = 1
         if graph_pooling[:-1] == "set2set":
             self.mult *= 2
@@ -784,15 +782,6 @@ class GNN_pred(torch.nn.Module):
                 torch.nn.Linear(node_embedding_dim, node_embedding_dim),
                 torch.nn.LeakyReLU(),
                 torch.nn.Linear(node_embedding_dim, self.num_graph_tasks),
-            )
-
-        if self.num_node_tasks > 0:
-            self.node_pred_module = torch.nn.Sequential(
-                torch.nn.Linear(node_embedding_dim + num_additional_feat, node_embedding_dim),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(node_embedding_dim, node_embedding_dim),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(node_embedding_dim, self.num_node_tasks),
             )
 
     def from_pretrained(self, model_file):
@@ -853,18 +842,6 @@ class GNN_pred(torch.nn.Module):
             node_representation = torch.cat([node_representation, additional_feat], 1)
 
         return_vals = []
-        if self.num_node_tasks > 0:
-            if "center_node_index" not in data:
-                node_pred = self.node_pred_module(node_representation)
-            else:
-                center_node_index = (
-                    [data.center_node_index]
-                    if isinstance(data.center_node_index, int)
-                    else data.center_node_index
-                )
-                center_node_rep = node_representation[center_node_index]
-                node_pred = self.node_pred_module(center_node_rep)
-            return_vals.append(node_pred)
         if self.num_graph_tasks > 0:
             graph_representation = self.pool(node_representation, batch)
             graph_pred = self.graph_pred_module(graph_representation)

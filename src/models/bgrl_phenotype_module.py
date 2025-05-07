@@ -7,6 +7,7 @@ import torch
 import torch_geometric
 from lightning import LightningModule
 from torch.nn.functional import cosine_similarity
+from torch_geometric.data import Data
 from torchmetrics import MeanMetric
 from torchmetrics.classification import (
     BinaryAccuracy,
@@ -57,8 +58,10 @@ class BGRLPhenotypeLitModule(LightningModule):
             self.criterion = self.cosine_similarity_loss
         elif mode == "finetuning":
             self.criterion = self.binary_cross_entropy_loss
-        else:
-            raise ValueError("Invalid mode. Choose either 'pretraining' or 'finetuning'.")
+        elif mode != "evaluation":
+            raise ValueError(
+                "Invalid mode. Choose either 'pretraining', 'finetuning', or 'evaluation."
+            )
 
         # loss metrics (only calculated during training)
         self.train_loss = MeanMetric()
@@ -103,7 +106,7 @@ class BGRLPhenotypeLitModule(LightningModule):
             target_edge_weight,
         )
 
-    def forward_gnn_pred(self, data: torch_geometric.data.Data) -> list:
+    def forward_gnn_pred(self, data: Data) -> list:
 
         return self.net(data)
 
@@ -162,9 +165,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         else:
             return bce_loss.sum()
 
-    def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
 
         # forward pass and loss calculation for pretraining
         if self.mode == "pretraining":
@@ -218,9 +219,11 @@ class BGRLPhenotypeLitModule(LightningModule):
             weight = batch.weight
             loss = self.criterion(y_pred, y_true, weight)
 
-        # no other mode is supported
+        # no other training mode is supported
         else:
-            raise ValueError("Invalid mode. Choose either 'pretraining' or 'finetuning'.")
+            raise ValueError(
+                "Invalid mode for training. Choose either 'pretraining' or 'finetuning'."
+            )
 
         # log metrics
         self.train_loss(loss)
@@ -235,6 +238,106 @@ class BGRLPhenotypeLitModule(LightningModule):
             self.net.update_target_network(mm)
 
         return loss
+
+    def validation_step(self, batch: Data, batch_idx: int) -> None:
+
+        # process each sample in the batch
+        graphs = batch.to_data_list()
+        for graph in graphs:
+
+            # run online encoder
+            with torch.no_grad():
+                node_embeddings = self.net.online_encoder(
+                    graph.x, graph.edge_index, graph.edge_weight
+                )
+
+            # load the corresponding AnnData object
+            sample_name = graph.sample_name
+            file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
+            adata = sc.read_h5ad(file_path)
+
+            # append cell embeddings to adata object
+            cell_embeddings_np = node_embeddings.cpu().numpy()
+            adata.obsm["cell_embeddings"] = cell_embeddings_np
+
+            # get ground truth labels
+            ground_truth_labels = adata.obs["domain_annotation"]
+
+            # determine resolution based on number of ground truth labels
+            sc.pp.neighbors(adata, use_rep="cell_embeddings")
+            resolution = set_leiden_resolution(
+                adata, target_num_clusters=ground_truth_labels.nunique(), seed=self.hparams.seed
+            )
+            # perform leiden clustering
+            sc.tl.leiden(
+                adata,
+                resolution=resolution,
+                flavor="igraph",
+                n_iterations=2,
+                directed=False,
+                random_state=self.hparams.seed,
+            )
+            leiden_labels = adata.obs["leiden"]
+
+            # convert ground truth labels and leiden labels to PyTorch tensors
+            ground_truth_labels = ground_truth_labels.astype("category").cat.codes
+            ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
+            leiden_labels = adata.obs["leiden"].astype("category").cat.codes
+            leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+
+            # calculate metrics
+            nmi = self.val_nmi(ground_truth_labels, leiden_labels)
+            ari = self.val_ars(ground_truth_labels, leiden_labels)
+            homogeneity = self.val_homogeneity(ground_truth_labels, leiden_labels)
+            completeness = self.val_completeness(ground_truth_labels, leiden_labels)
+
+            # save metrics for aggregation in on_validation_epoch_end()
+            self.val_outputs.append(
+                {
+                    "sample_name": sample_name,
+                    "nmi": nmi,
+                    "ari": ari,
+                    "homogeneity": homogeneity,
+                    "completeness": completeness,
+                }
+            )
+
+    def on_validation_epoch_end(self) -> None:
+
+        # get the logger's save directory
+        save_dir = self.logger.log_dir if hasattr(self.logger, "log_dir") else self.logger.save_dir
+        if save_dir is None:
+            raise ValueError("Logger does not have a valid save directory.")
+
+        # save graph-level metrics to a CSV file
+        file_path = os.path.join(save_dir, "val_results.csv")
+        with open(file_path, mode="w", newline="") as file:
+            writer = csv.DictWriter(
+                file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"]
+            )
+            writer.writeheader()
+            writer.writerows(self.val_outputs)
+
+        # extract all NMI and ARI scores
+        nmi_scores = torch.stack([x["nmi"] for x in self.val_outputs])
+        ari_scores = torch.stack([x["ari"] for x in self.val_outputs])
+        homogeneity_scores = torch.stack([x["homogeneity"] for x in self.val_outputs])
+        completeness_scores = torch.stack([x["completeness"] for x in self.val_outputs])
+
+        # compute mean scores
+        mean_nmi = nmi_scores.mean()
+        mean_ari = ari_scores.mean()
+        mean_homogeneity = homogeneity_scores.mean()
+        mean_completeness = completeness_scores.mean()
+
+        # log the mean scores
+        self.log("val/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
+        self.log("val/ari_mean", mean_ari, on_epoch=True, prog_bar=True)
+        self.log("val/homogeneity_mean", mean_homogeneity, on_epoch=True, prog_bar=True)
+        self.log("val/completeness_mean", mean_completeness, on_epoch=True, prog_bar=True)
+
+        # clear the outputs for the next validation run
+        self.val_outputs.clear()
 
     def setup(self, stage: str) -> None:
         """

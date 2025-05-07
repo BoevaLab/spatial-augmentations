@@ -28,6 +28,9 @@ Usage:
 >>> train_loader = datamodule.train_dataloader()
 """
 
+# TODO: add subgraph_radius_limit (see Lovro's data.py)
+
+
 import copy
 import json
 import os
