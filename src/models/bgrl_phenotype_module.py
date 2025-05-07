@@ -1,16 +1,14 @@
-import csv
-import os
 from typing import Any, Dict, List, Tuple
 
-import scanpy as sc
 import torch
-import torch_geometric
 from lightning import LightningModule
 from torch.nn.functional import cosine_similarity
 from torch_geometric.data import Data
 from torchmetrics import MeanMetric
 from torchmetrics.classification import (
     BinaryAccuracy,
+    BinaryAUROC,
+    BinaryConfusionMatrix,
     BinaryF1Score,
     BinaryPrecision,
     BinaryRecall,
@@ -22,6 +20,57 @@ from src.utils.schedulers import MomentumScheduler, WarmupScheduler
 
 
 class BGRLPhenotypeLitModule(LightningModule):
+    """
+    A PyTorch Lightning module for training the BGRL model on phenotype data.
+
+    This module implements the training logic for the BGRL model, which is designed for self-supervised
+    learning on graph data. It supports both pretraining and finetuning modes, with different loss functions
+    and training logic for each mode. The module also supports graph augmentations and momentum-based target
+    network updates.
+
+    Key Features:
+    - Implements the `training_step` method for pretraining and finetuning.
+    - Supports graph augmentations for self-supervised learning.
+    - Logs training, validation, and test metrics.
+    - Configures optimizers and learning rate schedulers.
+
+    Parameters:
+    ----------
+    mode : str
+        The mode of operation. Options are "pretraining", "finetuning", or "evaluation".
+    net : torch.nn.Module
+        The BGRL model to train, which includes the online encoder, target encoder, and projector.
+    optimizer : torch.optim.Optimizer
+        The optimizer to use for training (e.g., Adam, AdamW).
+    scheduler : torch.optim.lr_scheduler
+        The learning rate scheduler to use for training (e.g., ReduceLROnPlateau, CosineAnnealingLR).
+    compile : bool
+        Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
+    augmentation_mode : str
+        The graph augmentation mode to use. Options are "baseline" or "advanced".
+    augmentation_list1 : List[str]
+        List of graph augmentation methods to apply for the first view.
+    augmentation_list2 : List[str]
+        List of graph augmentation methods to apply for the second view.
+    mm : int
+        Initial momentum for the moving average update of the target encoder.
+    warmup_steps : int
+        Number of warmup steps for the momentum scheduler.
+    total_steps : int
+        Total number of training steps (iterations).
+    drop_edge_p1 : float
+        Dropout probability for edges in the first augmented view of the graph.
+    drop_edge_p2 : float
+        Dropout probability for edges in the second augmented view of the graph.
+    drop_feat_p1 : float
+        Dropout probability for node features in the first augmented view of the graph.
+    drop_feat_p2 : float
+        Dropout probability for node features in the second augmented view of the graph.
+    seed : int
+        Random seed for reproducibility.
+    pretrained_model_path : str, optional
+        Path to a pretrained model for finetuning. Default is None.
+    """
 
     def __init__(
         self,
@@ -43,7 +92,51 @@ class BGRLPhenotypeLitModule(LightningModule):
         seed: int,
         pretrained_model_path: str = None,
     ) -> None:
+        """
+        Initialize the BGRLPhenotypeLitModule.
 
+        Parameters:
+        ----------
+        mode : str
+            The mode of operation. Options are "pretraining", "finetuning", or "evaluation".
+        net : torch.nn.Module
+            The BGRL model to train, which includes the online encoder, target encoder, and projector.
+        optimizer : torch.optim.Optimizer
+            The optimizer to use for training (e.g., Adam, AdamW).
+        scheduler : torch.optim.lr_scheduler
+            The learning rate scheduler to use for training (e.g., ReduceLROnPlateau, CosineAnnealingLR).
+        compile : bool
+            Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
+        augmentation_mode : str
+            The graph augmentation mode to use. Options are "baseline" or "advanced".
+        augmentation_list1 : List[str]
+            List of graph augmentation methods to apply for the first view.
+        augmentation_list2 : List[str]
+            List of graph augmentation methods to apply for the second view.
+        mm : float
+            Initial momentum for the moving average update of the target encoder (value between 0 and 1).
+        warmup_steps : int
+            Number of warmup steps for the momentum scheduler.
+        total_steps : int
+            Total number of training steps (iterations).
+        drop_edge_p1 : float
+            Dropout probability for edges in the first augmented view of the graph.
+        drop_edge_p2 : float
+            Dropout probability for edges in the second augmented view of the graph.
+        drop_feat_p1 : float
+            Dropout probability for node features in the first augmented view of the graph.
+        drop_feat_p2 : float
+            Dropout probability for node features in the second augmented view of the graph.
+        seed : int
+            Random seed for reproducibility.
+        pretrained_model_path : str, optional
+            Path to a pretrained model for finetuning. Default is None.
+
+        Raises:
+        -------
+        ValueError
+            If the mode is not one of "pretraining", "finetuning", or "evaluation".
+        """
         super().__init__()
         self.save_hyperparameters(logger=False)
         self.mode = mode
@@ -74,17 +167,21 @@ class BGRLPhenotypeLitModule(LightningModule):
         )
 
         # validation metrics
+        self.val_auroc = BinaryAUROC()
         self.val_acc = BinaryAccuracy()
         self.val_prec = BinaryPrecision()
         self.val_rec = BinaryRecall()
         self.val_f1 = BinaryF1Score()
+        self.val_confusion_matrix = BinaryConfusionMatrix()
         self.val_outputs = []
 
         # test metrics (only calculated during testing)
+        self.test_auroc = BinaryAUROC()
         self.test_acc = BinaryAccuracy()
         self.test_prec = BinaryPrecision()
         self.test_rec = BinaryRecall()
         self.test_f1 = BinaryF1Score()
+        self.test_confusion_matrix = BinaryConfusionMatrix()
         self.test_outputs = []
 
     def forward_bgrl(
@@ -96,7 +193,31 @@ class BGRLPhenotypeLitModule(LightningModule):
         target_edge_index: torch.Tensor,
         target_edge_weight: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Perform a forward pass through the BGRL model for pretraining.
 
+        Parameters:
+        ----------
+        online_x : torch.Tensor
+            Input node features for the online encoder.
+        online_edge_index : torch.Tensor
+            Edge indices for the online encoder.
+        online_edge_weight : torch.Tensor
+            Edge weights for the online encoder.
+        target_x : torch.Tensor
+            Input node features for the target encoder.
+        target_edge_index : torch.Tensor
+            Edge indices for the target encoder.
+        target_edge_weight : torch.Tensor
+            Edge weights for the target encoder.
+
+        Returns:
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            A tuple containing:
+            - online_q: The predictions from the online network.
+            - target_y: The target embeddings from the target network.
+        """
         return self.net(
             online_x,
             online_edge_index,
@@ -107,7 +228,19 @@ class BGRLPhenotypeLitModule(LightningModule):
         )
 
     def forward_gnn_pred(self, data: Data) -> list:
+        """
+        Perform a forward pass through the GNN model for finetuning.
 
+        Parameters:
+        ----------
+        data : Data
+            A PyTorch Geometric `Data` object containing the graph data.
+
+        Returns:
+        -------
+        list
+            The predictions from the GNN model.
+        """
         return self.net(data)
 
     def cosine_similarity_loss(self, online_q1, target_y2, online_q2, target_y1):
@@ -166,7 +299,24 @@ class BGRLPhenotypeLitModule(LightningModule):
             return bce_loss.sum()
 
     def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
+        """
+        Perform a single training step.
 
+        This method applies graph augmentations, computes the forward pass, calculates the loss,
+        and updates the target network (if in pretraining mode).
+
+        Parameters:
+        ----------
+        batch : Data
+            A batch of input data.
+        batch_idx : int
+            The index of the batch.
+
+        Returns:
+        -------
+        torch.Tensor
+            The training loss for the batch.
+        """
         # forward pass and loss calculation for pretraining
         if self.mode == "pretraining":
 
@@ -239,105 +389,178 @@ class BGRLPhenotypeLitModule(LightningModule):
 
         return loss
 
-    def validation_step(self, batch: Data, batch_idx: int) -> None:
+    def evaluate_single_graph(self, logit, label, mask):
+        """
+        Evaluate a single graph and compute metrics.
 
-        # process each sample in the batch
-        graphs = batch.to_data_list()
-        for graph in graphs:
+        Parameters:
+        ----------
+        logit : torch.Tensor
+            The predicted logits for the graph.
+        label : torch.Tensor
+            The ground truth label for the graph.
+        mask : int
+            A mask indicating whether the graph should be evaluated.
 
-            # run online encoder
+        Returns:
+        -------
+        dict
+            A dictionary containing the computed metrics.
+        """
+        # skip graph if mask is 0
+        if mask == 0:
+            return {
+                k: float("nan")
+                for k in ["auroc", "accuracy", "balanced_accuracy", "f1", "precision", "recall"]
+            }
+
+        # convert inputs to tensors
+        if not isinstance(logit, torch.Tensor):
+            logit = torch.tensor([logit], dtype=torch.float)
+        if not isinstance(label, torch.Tensor):
+            label = torch.tensor([label], dtype=torch.int)
+        prob = torch.sigmoid(logit)
+        pred = (prob >= 0.5).int()
+
+        # compute metrics
+        metrics = {
+            "auroc": self.val_auroc(prob, label).item(),
+            "accuracy": self.val_acc(pred, label).item(),
+            "f1": self.val_f1(pred, label).item(),
+            "precision": self.val_prec(pred, label).item(),
+            "recall": self.val_rec(pred, label).item(),
+        }
+
+        # compute balanced accuracy
+        cm = self.val_confusion_matrix(pred, label)
+        tn, fp, fn, tp = cm.flatten()
+        sensitivity = tp / (tp + fn + 1e-8)
+        specificity = tn / (tn + fp + 1e-8)
+        metrics["balanced_accuracy"] = ((sensitivity + specificity) / 2).item()
+
+        return metrics
+
+    def validation_step(self, batch: list[Data], batch_idx: int) -> None:
+        """
+        Perform a single validation step.
+
+        This method evaluates the model on a batch of validation data and computes metrics.
+
+        Parameters:
+        ----------
+        batch : list[Data]
+            A batch of input data containing subgraphs.
+        batch_idx : int
+            The index of the batch.
+        """
+        for subgraph in batch:
+
+            # run online encoder to get predictions
             with torch.no_grad():
-                node_embeddings = self.net.online_encoder(
-                    graph.x, graph.edge_index, graph.edge_weight
-                )
+                res = self.net.online_encoder(subgraph)
+            y_pred = res[0]
 
-            # load the corresponding AnnData object
-            sample_name = graph.sample_name
-            file_path = os.path.join(self.hparams.processed_dir, sample_name + ".h5ad")
-            adata = sc.read_h5ad(file_path)
-
-            # append cell embeddings to adata object
-            cell_embeddings_np = node_embeddings.cpu().numpy()
-            adata.obsm["cell_embeddings"] = cell_embeddings_np
-
-            # get ground truth labels
-            ground_truth_labels = adata.obs["domain_annotation"]
-
-            # determine resolution based on number of ground truth labels
-            sc.pp.neighbors(adata, use_rep="cell_embeddings")
-            resolution = set_leiden_resolution(
-                adata, target_num_clusters=ground_truth_labels.nunique(), seed=self.hparams.seed
-            )
-            # perform leiden clustering
-            sc.tl.leiden(
-                adata,
-                resolution=resolution,
-                flavor="igraph",
-                n_iterations=2,
-                directed=False,
-                random_state=self.hparams.seed,
-            )
-            leiden_labels = adata.obs["leiden"]
-
-            # convert ground truth labels and leiden labels to PyTorch tensors
-            ground_truth_labels = ground_truth_labels.astype("category").cat.codes
-            ground_truth_labels = torch.tensor(ground_truth_labels.values, dtype=torch.long)
-            leiden_labels = adata.obs["leiden"].astype("category").cat.codes
-            leiden_labels = torch.tensor(leiden_labels.values, dtype=torch.long)
+            # get ground truth labels and class weights
+            y_true = subgraph.y
+            weight = subgraph.w
 
             # calculate metrics
-            nmi = self.val_nmi(ground_truth_labels, leiden_labels)
-            ari = self.val_ars(ground_truth_labels, leiden_labels)
-            homogeneity = self.val_homogeneity(ground_truth_labels, leiden_labels)
-            completeness = self.val_completeness(ground_truth_labels, leiden_labels)
-
-            # save metrics for aggregation in on_validation_epoch_end()
-            self.val_outputs.append(
-                {
-                    "sample_name": sample_name,
-                    "nmi": nmi,
-                    "ari": ari,
-                    "homogeneity": homogeneity,
-                    "completeness": completeness,
-                }
-            )
+            metrics = self.evaluate_single_graph(y_pred, y_true, weight)
+            self.val_outputs.append(metrics)
 
     def on_validation_epoch_end(self) -> None:
+        """
+        Aggregate metrics at the end of the validation epoch and log the results.
+        """
+        # extract all metrics from the validation outputs
+        auroc_scores = torch.stack([x["auroc"] for x in self.val_outputs])
+        accuracy_scores = torch.stack([x["accuracy"] for x in self.val_outputs])
+        balanced_accuracy_scores = torch.stack([x["balanced_accuracy"] for x in self.val_outputs])
+        f1_scores = torch.stack([x["f1"] for x in self.val_outputs])
+        precision_scores = torch.stack([x["precision"] for x in self.val_outputs])
+        recall_scores = torch.stack([x["recall"] for x in self.val_outputs])
 
-        # get the logger's save directory
-        save_dir = self.logger.log_dir if hasattr(self.logger, "log_dir") else self.logger.save_dir
-        if save_dir is None:
-            raise ValueError("Logger does not have a valid save directory.")
-
-        # save graph-level metrics to a CSV file
-        file_path = os.path.join(save_dir, "val_results.csv")
-        with open(file_path, mode="w", newline="") as file:
-            writer = csv.DictWriter(
-                file, fieldnames=["sample_name", "nmi", "ari", "homogeneity", "completeness"]
-            )
-            writer.writeheader()
-            writer.writerows(self.val_outputs)
-
-        # extract all NMI and ARI scores
-        nmi_scores = torch.stack([x["nmi"] for x in self.val_outputs])
-        ari_scores = torch.stack([x["ari"] for x in self.val_outputs])
-        homogeneity_scores = torch.stack([x["homogeneity"] for x in self.val_outputs])
-        completeness_scores = torch.stack([x["completeness"] for x in self.val_outputs])
-
-        # compute mean scores
-        mean_nmi = nmi_scores.mean()
-        mean_ari = ari_scores.mean()
-        mean_homogeneity = homogeneity_scores.mean()
-        mean_completeness = completeness_scores.mean()
+        # aggregate the scores
+        mean_auroc = auroc_scores.mean()
+        mean_accuracy = accuracy_scores.mean()
+        mean_balanced_accuracy = balanced_accuracy_scores.mean()
+        mean_f1 = f1_scores.mean()
+        mean_precision = precision_scores.mean()
+        mean_recall = recall_scores.mean()
 
         # log the mean scores
-        self.log("val/nmi_mean", mean_nmi, on_epoch=True, prog_bar=True)
-        self.log("val/ari_mean", mean_ari, on_epoch=True, prog_bar=True)
-        self.log("val/homogeneity_mean", mean_homogeneity, on_epoch=True, prog_bar=True)
-        self.log("val/completeness_mean", mean_completeness, on_epoch=True, prog_bar=True)
+        self.log("val/auroc_mean", mean_auroc, on_epoch=True, prog_bar=True)
+        self.log("val/accuracy_mean", mean_accuracy, on_epoch=True, prog_bar=True)
+        self.log(
+            "val/balanced_accuracy_mean", mean_balanced_accuracy, on_epoch=True, prog_bar=True
+        )
+        self.log("val/f1_mean", mean_f1, on_epoch=True, prog_bar=True)
+        self.log("val/precision_mean", mean_precision, on_epoch=True, prog_bar=True)
+        self.log("val/recall_mean", mean_recall, on_epoch=True, prog_bar=True)
 
         # clear the outputs for the next validation run
         self.val_outputs.clear()
+
+    def test_step(self, batch: list[Data], batch_idx: int) -> None:
+        """
+        Perform a single test step.
+
+        This method evaluates the model on a batch of test data and computes metrics.
+
+        Parameters:
+        ----------
+        batch : list[Data]
+            A batch of input data containing subgraphs.
+        batch_idx : int
+            The index of the batch.
+        """
+        for subgraph in batch:
+
+            # run online encoder to get predictions
+            with torch.no_grad():
+                res = self.net.online_encoder(subgraph)
+            y_pred = res[0]
+
+            # get ground truth labels and class weights
+            y_true = subgraph.y
+            weight = subgraph.w
+
+            # calculate metrics
+            metrics = self.evaluate_single_graph(y_pred, y_true, weight)
+            self.test_outputs.append(metrics)
+
+    def on_test_epoch_end(self) -> None:
+        """
+        Aggregate metrics at the end of the test epoch and log the results.
+        """
+        # extract all metrics from the test outputs
+        auroc_scores = torch.stack([x["auroc"] for x in self.test_outputs])
+        accuracy_scores = torch.stack([x["accuracy"] for x in self.test_outputs])
+        balanced_accuracy_scores = torch.stack([x["balanced_accuracy"] for x in self.test_outputs])
+        f1_scores = torch.stack([x["f1"] for x in self.test_outputs])
+        precision_scores = torch.stack([x["precision"] for x in self.test_outputs])
+        recall_scores = torch.stack([x["recall"] for x in self.test_outputs])
+
+        # aggregate the scores
+        mean_auroc = auroc_scores.mean()
+        mean_accuracy = accuracy_scores.mean()
+        mean_balanced_accuracy = balanced_accuracy_scores.mean()
+        mean_f1 = f1_scores.mean()
+        mean_precision = precision_scores.mean()
+        mean_recall = recall_scores.mean()
+
+        # log the mean scores
+        self.log("test/auroc_mean", mean_auroc, on_epoch=True, prog_bar=True)
+        self.log("test/accuracy_mean", mean_accuracy, on_epoch=True, prog_bar=True)
+        self.log(
+            "test/balanced_accuracy_mean", mean_balanced_accuracy, on_epoch=True, prog_bar=True
+        )
+        self.log("test/f1_mean", mean_f1, on_epoch=True, prog_bar=True)
+        self.log("test/precision_mean", mean_precision, on_epoch=True, prog_bar=True)
+        self.log("test/recall_mean", mean_recall, on_epoch=True, prog_bar=True)
+
+        # clear the outputs for the next test run
+        self.test_outputs.clear()
 
     def setup(self, stage: str) -> None:
         """
