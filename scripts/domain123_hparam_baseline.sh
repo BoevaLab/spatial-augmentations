@@ -12,4 +12,4 @@
 source "$HOME/.bashrc"
 conda activate augmentation
 
-srun python src/train.py -m hparams_search=domain123_baseline experiment=domain123_hparam_baseline
+srun python src/train_domain.py -m hparams_search=domain123_baseline experiment=domain123_hparam_baseline

@@ -12,4 +12,4 @@
 source "$HOME/.bashrc"
 conda activate augmentation
 
-srun python src/train.py experiment=domain123_train_test_augmentation
+srun python src/train_domain.py experiment=domain123_train_test_augmentation
