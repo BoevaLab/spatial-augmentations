@@ -784,18 +784,24 @@ class GNN_pred(torch.nn.Module):
                 torch.nn.Linear(node_embedding_dim, self.num_graph_tasks),
             )
 
-    def from_pretrained(self, model_file):
+    def from_pretrained(self, ckpt_file):
         """
         Load a pretrained GNN model.
 
-        This method loads the state dictionary of a pretrained GNN model from a file.
+        This method loads the state dictionary of a pretrained GNN model from a lightning checkpoint file.
 
         Parameters:
         ----------
         model_file : str
             The path to the file containing the pretrained model's state dictionary.
         """
-        self.gnn.load_state_dict(torch.load(model_file))  # nosec B614
+        full_state_dict = torch.load(ckpt_file, weights_only=False)["state_dict"]  # nosec B614
+        gnn_state_dict = {
+            k.replace("net.online_encoder.", ""): v
+            for k, v in full_state_dict.items()
+            if k.startswith("net.online_encoder.")
+        }
+        self.gnn.load_state_dict(gnn_state_dict)
 
     def forward(
         self, data, node_feat_mask=None, return_node_embedding=False, return_graph_embedding=False
