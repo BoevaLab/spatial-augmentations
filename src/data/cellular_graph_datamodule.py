@@ -34,6 +34,7 @@ Usage:
 import copy
 import json
 import os
+import random
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -42,9 +43,10 @@ import torch
 from joblib import Parallel, delayed
 from lightning import LightningDataModule
 from torch.utils.data import random_split
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Batch, Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import k_hop_subgraph
+from tqdm import tqdm
 
 from src.utils import RankedLogger
 
@@ -79,8 +81,6 @@ class CellularGraphDataset(Dataset):
         Whether to avoid sampling unassigned cells during subgraph sampling.
     unassigned_cell_type : str
         The cell type to be considered as unassigned.
-    seed : int
-        Random seed for reproducibility.
     sampling_freq : torch.Tensor
         Sampling frequency for each cell type, used for balanced subgraph sampling.
     """
@@ -106,7 +106,6 @@ class CellularGraphDataset(Dataset):
         edge_features_to_use: list = ["edge_type"],
         sampling_avoid_unassigned: bool = True,
         unassigned_cell_type: str = "Unassigned",
-        seed: int = 42,
     ) -> None:
         """
         Initializes the CellularGraphDataset.
@@ -139,8 +138,6 @@ class CellularGraphDataset(Dataset):
             Whether to avoid sampling unassigned cells during subgraph sampling. Default is True.
         unassigned_cell_type : str, optional
             The cell type to be considered as unassigned. Default is "Unassigned".
-        seed : int, optional
-            Random seed for reproducibility. Default is 42.
         """
         super().__init__()
         self.training = training
@@ -199,10 +196,7 @@ class CellularGraphDataset(Dataset):
         self.node_feature_names = self.get_feature_names(node_features)
         self.edge_feature_names = self.get_feature_names(edge_features)
 
-        # set the seed for reproducibility
-        self.seed = seed
-
-    def len(self) -> int:
+    def __len__(self) -> int:
         """
         Returns the length of the dataset.
 
@@ -232,22 +226,16 @@ class CellularGraphDataset(Dataset):
         int
             The index of the selected center node.
         """
-        # initialize a global random state if it doesn't exist
-        if not hasattr(self, "_global_random_state"):
-            self._global_random_state = np.random.RandomState(self.seed)
-
         # compute sampling frequencies
         cell_types = graph.x[:, 0].long()
         freq = self.sampling_freq.gather(0, cell_types)
         freq = freq / freq.sum()
 
         # randomly select a center node
-        center_node_ind = int(
-            self._global_random_state.choice(np.arange(len(freq)), p=freq.cpu().data.numpy())
-        )
+        center_node_ind = int(np.random.choice(np.arange(len(freq)), p=freq.cpu().data.numpy()))
         return center_node_ind
 
-    def get_feature_names(self, features):
+    def get_feature_names(self, features: list[str]) -> list[str]:
         """ """
         feature_names = []
         for feature in features:
@@ -328,6 +316,46 @@ class CellularGraphDataset(Dataset):
         self.mask_features(graph)
         return graph
 
+    def save_all_subgraphs_to_chunk(self):
+        """
+        Save all n-hop subgraphs for all regions to chunk files (one file per region).
+        """
+        for idx, region in tqdm(enumerate(self.regions)):
+            # check if the subgraph file already exists
+            subgraph_path = os.path.join(self.graph_dir, region + f".{self.subgraph_size}-hop.gpt")
+            if os.path.exists(subgraph_path):
+                continue
+
+            # if not, load the graph and sample all subgraphs
+            subgraphs = self.get_all_subgraphs(idx)
+            torch.save(subgraphs, subgraph_path)
+
+    def load_subgraph_from_chunk(self, region_idx: int, center_node_ind: int) -> Data:
+        """
+        Loads a specific subgraph from disk (stored as a chunk file for the region).
+        Falls back to computing it on the fly if the file is missing.
+
+        Parameters:
+        -----------
+        region_idx : int
+            Index of the region in the dataset.
+        center_node_ind : int
+            Index of the center node in the region's graph.
+
+        Returns:
+        --------
+        Data
+            The k-hop subgraph centered on the specified node.
+        """
+        region = self.regions[region_idx]
+        subgraph_path = os.path.join(self.graph_dir, f"{region}.{self.subgraph_size}-hop.gpt")
+
+        if not os.path.exists(subgraph_path):
+            raise FileNotFoundError(f"Subgraph file not found: {subgraph_path}.")
+
+        subgraphs = torch.load(subgraph_path, weights_only=False)  # nosec B614
+        return subgraphs[center_node_ind]
+
     def get_all_subgraphs(self, idx: int) -> list:
         """
         Loads and returns a list of all subgraphs for the region at the specified index.
@@ -345,11 +373,18 @@ class CellularGraphDataset(Dataset):
         # get full graph to sample from
         graph = self.get_graph(idx)
 
-        # sample subgraphs
+        # load the subgraph from the chunk file if it exists
+        path = os.path.join(self.graph_dir, f"{graph.region_id}.{self.subgraph_size}-hop.gpt")
+        if os.path.exists(path):
+            path = os.path.join(self.graph_dir, f"{graph.region_id}.{self.subgraph_size}-hop.gpt")
+            return torch.load(path, weights_only=False)  # nosec B614
+
+        # sample and build all subgraphs
         subgraphs = []
         for node in range(graph.num_nodes):
-            # sample a k-hop subgraph around the center node
             center_node_ind = int(node)
+
+            # sample a k-hop subgraph around the center node
             node_idx, edge_index, _, edge_mask = k_hop_subgraph(
                 center_node_ind,
                 self.subgraph_size,
@@ -386,16 +421,20 @@ class CellularGraphDataset(Dataset):
         torch_geometric.data.Data
             A PyTorch Geometric `Data` object representing the sampled subgraph.
         """
-        # initialize a global random state if it doesn't exist
-        if not hasattr(self, "_global_random_state"):
-            self._global_random_state = np.random.RandomState(self.seed)
-
         # randomly select a region and load its graph
-        region_idx = self._global_random_state.randint(0, len(self.regions))
+        region_idx = np.random.randint(0, len(self.regions))
         graph = self.get_graph(region_idx)
 
-        # randomly select a center node from the graph and build a k-hop subgraph
+        # randomly select a center node from the graph and load or build a k-hop subgraph
         center_node_ind = self.pick_center_node(graph)
+
+        # loading subgraph is slower in this case so not used
+        # load the subgraph from the chunk file if it exists
+        # path = os.path.join(self.graph_dir, f"{graph.region_id}.{self.subgraph_size}-hop.gpt")
+        # if os.path.exists(path):
+        #    return self.load_subgraph_from_chunk(region_idx, center_node_ind)
+
+        # build a k-hop subgraph around the center node
         node_idx, edge_index, _, edge_mask = k_hop_subgraph(
             center_node_ind,
             self.subgraph_size,
@@ -414,7 +453,7 @@ class CellularGraphDataset(Dataset):
             original_center_node=center_node_ind,
         )
 
-    def get(self, idx: int) -> Data:
+    def __getitem__(self, idx: int) -> Data:
         """
         Retrieves data based on the mode (training or evaluation).
 
@@ -431,7 +470,8 @@ class CellularGraphDataset(Dataset):
         if self.training:
             return self.get_subgraph(idx)
         else:
-            return self.get_all_subgraphs(idx)
+            subgraphs = self.get_all_subgraphs(idx)
+            return Batch.from_data_list(subgraphs)
 
 
 class CellularGraphDataModule(LightningDataModule):
@@ -655,7 +695,7 @@ class CellularGraphDataModule(LightningDataModule):
             graph.y[i] = graph.y[i].to(torch.float32)
             graph.w[i] = class_weights[task][graph.y[i].item()]
 
-        # save procsessed graph
+        # save processed graph
         graph_path = os.path.join(self.hparams.processed_dir, f"{graph.region_id}.0.gpt")
         torch.save(graph, graph_path)
         log.info(f"Saved processed graph to {graph_path}.")
@@ -770,10 +810,22 @@ class CellularGraphDataModule(LightningDataModule):
                     edge_features_to_use=self.hparams.edge_features_to_use,
                     sampling_avoid_unassigned=self.hparams.sampling_avoid_unassigned,
                     unassigned_cell_type=self.hparams.unassigned_cell_type,
-                    seed=self.hparams.seed,
                 )
                 torch.save(self.dataset, os.path.join(self.hparams.processed_dir, "dataset.pt"))
                 log.info(f"Saved preprocessed graphs to {processed_file}. Finished preprocessing.")
+
+                # save all subgraphs to chunk files if they don't exist yet
+                log.info(f"Saving all subgraphs to chunk files in {self.hparams.processed_dir}.")
+                self.dataset.save_all_subgraphs_to_chunk()
+                log.info(f"Saved all subgraphs to chunk files in {self.hparams.processed_dir}.")
+
+        # set seeds for reproducibility
+        np.random.seed(self.hparams.seed)
+        random.seed(self.hparams.seed)
+        torch.manual_seed(self.hparams.seed)
+        torch.cuda.manual_seed_all(self.hparams.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
         # load regions for training and validation
         train_region_path = os.path.join(self.hparams.json_path, "train_regions.json")
@@ -801,12 +853,9 @@ class CellularGraphDataModule(LightningDataModule):
             self.test_dataset = None
         else:
             # split the validation and test regions into 50/50
-            generator = torch.Generator().manual_seed(self.hparams.seed)
             val_size = int(0.5 * len(val_test_regions))
-            test_size = len(val_test_regions) - val_size
-            val_regions, test_regions = random_split(
-                val_test_regions, [val_size, test_size], generator=generator
-            )
+            val_regions = random.sample(val_test_regions, val_size)
+            test_regions = [r for r in val_test_regions if r not in val_regions]
 
             # set the validation dataset
             self.val_dataset = copy.deepcopy(self.dataset)
@@ -819,6 +868,11 @@ class CellularGraphDataModule(LightningDataModule):
             self.test_dataset.regions = test_regions
             self.test_dataset.training = False
             self.test_dataset.batch_size = 1
+
+    def worker_init_fn(self, worker_id):
+        base_seed = torch.initial_seed() % 2**32
+        np.random.seed(base_seed + worker_id)
+        random.seed(base_seed + worker_id)
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -833,6 +887,7 @@ class CellularGraphDataModule(LightningDataModule):
             dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
+            worker_init_fn=self.worker_init_fn,
             persistent_workers=self.hparams.num_workers > 0,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
@@ -850,8 +905,9 @@ class CellularGraphDataModule(LightningDataModule):
         return DataLoader(
             dataset=self.val_dataset,
             batch_size=1,
-            num_workers=self.hparams.num_workers,
-            persistent_workers=self.hparams.num_workers > 0,
+            num_workers=0,
+            worker_init_fn=self.worker_init_fn,
+            persistent_workers=False,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
@@ -868,8 +924,9 @@ class CellularGraphDataModule(LightningDataModule):
         return DataLoader(
             dataset=self.test_dataset,
             batch_size=1,
-            num_workers=self.hparams.num_workers,
-            persistent_workers=self.hparams.num_workers > 0,
+            num_workers=0,
+            worker_init_fn=self.worker_init_fn,
+            persistent_workers=False,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
