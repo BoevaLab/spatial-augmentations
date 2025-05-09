@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple
 import torch
 from lightning import LightningModule
 from torch.nn.functional import cosine_similarity
-from torch_geometric.data import Data
+from torch_geometric.data import Batch, Data
 from torchmetrics import MeanMetric
 from torchmetrics.classification import (
     BinaryAccuracy,
@@ -14,9 +14,12 @@ from torchmetrics.classification import (
     BinaryRecall,
 )
 
+from src.utils import RankedLogger
 from src.utils.clustering_utils import set_leiden_resolution
 from src.utils.graph_augmentations_phenotype import get_graph_augmentation
 from src.utils.schedulers import MomentumScheduler, WarmupScheduler
+
+log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class BGRLPhenotypeLitModule(LightningModule):
@@ -90,7 +93,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         drop_feat_p1: float,
         drop_feat_p2: float,
         seed: int,
-        pretrained_model_path: str = None,
+        ckpt_file: str = None,
     ) -> None:
         """
         Initialize the BGRLPhenotypeLitModule.
@@ -129,7 +132,7 @@ class BGRLPhenotypeLitModule(LightningModule):
             Dropout probability for node features in the second augmented view of the graph.
         seed : int
             Random seed for reproducibility.
-        pretrained_model_path : str, optional
+        ckpt_file : str, optional
             Path to a pretrained model for finetuning. Default is None.
 
         Raises:
@@ -143,8 +146,9 @@ class BGRLPhenotypeLitModule(LightningModule):
 
         # initialize the model (either BGRL for pretraining or GNN_pred for finetuning)
         self.net = net
-        if self.mode == "finetuning" and pretrained_model_path is not None:
-            net.from_pretrained(pretrained_model_path)
+        if self.mode == "finetuning" and ckpt_file is not None:
+            net.from_pretrained(ckpt_file)
+            log.info(f"Loaded pretrained model from {ckpt_file}.")
 
         # loss function
         if mode == "pretraining":
@@ -362,11 +366,12 @@ class BGRLPhenotypeLitModule(LightningModule):
         elif self.mode == "finetuning":
 
             # forward pass
-            y_pred = self.forward_gnn_pred(batch)
+            res = self.forward_gnn_pred(batch)
+            y_pred = res[0].flatten()
 
             # compute binary cross-entropy loss
             y_true = batch.y
-            weight = batch.weight
+            weight = batch.w
             loss = self.criterion(y_pred, y_true, weight)
 
         # no other training mode is supported
@@ -389,50 +394,37 @@ class BGRLPhenotypeLitModule(LightningModule):
 
         return loss
 
-    def evaluate_single_graph(self, logit, label, mask):
+    def calculate_metrics(self, logits, labels):
         """
-        Evaluate a single graph and compute metrics.
+        Evaluate graphs by computing classification metrics.
 
         Parameters:
         ----------
-        logit : torch.Tensor
-            The predicted logits for the graph.
-        label : torch.Tensor
-            The ground truth label for the graph.
-        mask : int
-            A mask indicating whether the graph should be evaluated.
+        logits : torch.Tensor
+            The predicted logits for the graphs.
+        labels : torch.Tensor
+            The ground truth label for the graphs.
 
         Returns:
         -------
         dict
             A dictionary containing the computed metrics.
         """
-        # skip graph if mask is 0
-        if mask == 0:
-            return {
-                k: float("nan")
-                for k in ["auroc", "accuracy", "balanced_accuracy", "f1", "precision", "recall"]
-            }
-
-        # convert inputs to tensors
-        if not isinstance(logit, torch.Tensor):
-            logit = torch.tensor([logit], dtype=torch.float)
-        if not isinstance(label, torch.Tensor):
-            label = torch.tensor([label], dtype=torch.int)
-        prob = torch.sigmoid(logit)
-        pred = (prob >= 0.5).int()
+        # turn logits into probabilities and predictions
+        probs = torch.sigmoid(logits)
+        preds = (probs >= 0.5).int()
 
         # compute metrics
         metrics = {
-            "auroc": self.val_auroc(prob, label).item(),
-            "accuracy": self.val_acc(pred, label).item(),
-            "f1": self.val_f1(pred, label).item(),
-            "precision": self.val_prec(pred, label).item(),
-            "recall": self.val_rec(pred, label).item(),
+            "auroc": self.val_auroc(probs, labels).item(),
+            "accuracy": self.val_acc(preds, labels).item(),
+            "f1": self.val_f1(preds, labels).item(),
+            "precision": self.val_prec(preds, labels).item(),
+            "recall": self.val_rec(preds, labels).item(),
         }
 
         # compute balanced accuracy
-        cm = self.val_confusion_matrix(pred, label)
+        cm = self.val_confusion_matrix(preds, labels)
         tn, fp, fn, tp = cm.flatten()
         sensitivity = tp / (tp + fn + 1e-8)
         specificity = tn / (tn + fp + 1e-8)
@@ -453,50 +445,47 @@ class BGRLPhenotypeLitModule(LightningModule):
         batch_idx : int
             The index of the batch.
         """
-        for subgraph in batch:
+        # create a batch of all subgraphs from list of subgraphs
+        region_id = batch.region_id[0][0]
 
-            # run online encoder to get predictions
-            with torch.no_grad():
-                res = self.net.online_encoder(subgraph)
-            y_pred = res[0]
+        # run online encoder to get predictions for graph
+        # prediction for graph is the mean of all subgraphs
+        with torch.no_grad():
+            res = self.net(batch)
+        y_pred = res[0].flatten().mean()
 
-            # get ground truth labels and class weights
-            y_true = subgraph.y
-            weight = subgraph.w
+        # get ground truth labels (graph level, same for all subgraphs)
+        y_true = batch.y[0]
 
-            # calculate metrics
-            metrics = self.evaluate_single_graph(y_pred, y_true, weight)
-            self.val_outputs.append(metrics)
+        # save the predictions, ground truth labels, and region_id for the graph
+        self.val_outputs.append(
+            {
+                "y_pred": y_pred,
+                "y_true": y_true,
+                "region_id": region_id,
+            }
+        )
 
     def on_validation_epoch_end(self) -> None:
         """
         Aggregate metrics at the end of the validation epoch and log the results.
         """
-        # extract all metrics from the validation outputs
-        auroc_scores = torch.stack([x["auroc"] for x in self.val_outputs])
-        accuracy_scores = torch.stack([x["accuracy"] for x in self.val_outputs])
-        balanced_accuracy_scores = torch.stack([x["balanced_accuracy"] for x in self.val_outputs])
-        f1_scores = torch.stack([x["f1"] for x in self.val_outputs])
-        precision_scores = torch.stack([x["precision"] for x in self.val_outputs])
-        recall_scores = torch.stack([x["recall"] for x in self.val_outputs])
+        # aggregate predictions and labels into tensors
+        y_preds = torch.tensor([d["y_pred"] for d in self.val_outputs], dtype=torch.float)
+        y_trues = torch.tensor([d["y_true"] for d in self.val_outputs], dtype=torch.float)
 
-        # aggregate the scores
-        mean_auroc = auroc_scores.mean()
-        mean_accuracy = accuracy_scores.mean()
-        mean_balanced_accuracy = balanced_accuracy_scores.mean()
-        mean_f1 = f1_scores.mean()
-        mean_precision = precision_scores.mean()
-        mean_recall = recall_scores.mean()
+        # compute metrics across all graphs
+        metrics = self.calculate_metrics(y_preds, y_trues)
 
-        # log the mean scores
-        self.log("val/auroc_mean", mean_auroc, on_epoch=True, prog_bar=True)
-        self.log("val/accuracy_mean", mean_accuracy, on_epoch=True, prog_bar=True)
+        # log the results
+        self.log("val/auroc", metrics["auroc"], on_epoch=True, prog_bar=True)
+        self.log("val/accuracy", metrics["accuracy"], on_epoch=True, prog_bar=True)
         self.log(
-            "val/balanced_accuracy_mean", mean_balanced_accuracy, on_epoch=True, prog_bar=True
+            "val/balanced_accuracy", metrics["balanced_accuracy"], on_epoch=True, prog_bar=True
         )
-        self.log("val/f1_mean", mean_f1, on_epoch=True, prog_bar=True)
-        self.log("val/precision_mean", mean_precision, on_epoch=True, prog_bar=True)
-        self.log("val/recall_mean", mean_recall, on_epoch=True, prog_bar=True)
+        self.log("val/f1", metrics["f1"], on_epoch=True, prog_bar=True)
+        self.log("val/precision", metrics["precision"], on_epoch=True, prog_bar=True)
+        self.log("val/recall", metrics["recall"], on_epoch=True, prog_bar=True)
 
         # clear the outputs for the next validation run
         self.val_outputs.clear()
@@ -514,50 +503,47 @@ class BGRLPhenotypeLitModule(LightningModule):
         batch_idx : int
             The index of the batch.
         """
-        for subgraph in batch:
+        # create a batch of all subgraphs from list of subgraphs
+        region_id = batch.region_id[0][0]
 
-            # run online encoder to get predictions
-            with torch.no_grad():
-                res = self.net.online_encoder(subgraph)
-            y_pred = res[0]
+        # run online encoder to get predictions for graph
+        # prediction for graph is the mean of all subgraphs
+        with torch.no_grad():
+            res = self.net(batch)
+        y_pred = res[0].flatten().mean()
 
-            # get ground truth labels and class weights
-            y_true = subgraph.y
-            weight = subgraph.w
+        # get ground truth labels (graph level, same for all subgraphs)
+        y_true = batch.y[0]
 
-            # calculate metrics
-            metrics = self.evaluate_single_graph(y_pred, y_true, weight)
-            self.test_outputs.append(metrics)
+        # save the predictions, ground truth labels, and region_id for the graph
+        self.test_outputs.append(
+            {
+                "y_pred": y_pred,
+                "y_true": y_true,
+                "region_id": region_id,
+            }
+        )
 
     def on_test_epoch_end(self) -> None:
         """
         Aggregate metrics at the end of the test epoch and log the results.
         """
-        # extract all metrics from the test outputs
-        auroc_scores = torch.stack([x["auroc"] for x in self.test_outputs])
-        accuracy_scores = torch.stack([x["accuracy"] for x in self.test_outputs])
-        balanced_accuracy_scores = torch.stack([x["balanced_accuracy"] for x in self.test_outputs])
-        f1_scores = torch.stack([x["f1"] for x in self.test_outputs])
-        precision_scores = torch.stack([x["precision"] for x in self.test_outputs])
-        recall_scores = torch.stack([x["recall"] for x in self.test_outputs])
+        # aggregate predictions and labels into tensors
+        y_preds = torch.tensor([d["y_pred"] for d in self.test_outputs], dtype=torch.float)
+        y_trues = torch.tensor([d["y_true"] for d in self.test_outputs], dtype=torch.int)
 
-        # aggregate the scores
-        mean_auroc = auroc_scores.mean()
-        mean_accuracy = accuracy_scores.mean()
-        mean_balanced_accuracy = balanced_accuracy_scores.mean()
-        mean_f1 = f1_scores.mean()
-        mean_precision = precision_scores.mean()
-        mean_recall = recall_scores.mean()
+        # compute metrics across all graphs
+        metrics = self.calculate_metrics(y_preds, y_trues)
 
-        # log the mean scores
-        self.log("test/auroc_mean", mean_auroc, on_epoch=True, prog_bar=True)
-        self.log("test/accuracy_mean", mean_accuracy, on_epoch=True, prog_bar=True)
+        # log the results
+        self.log("test/auroc", metrics["auroc"], on_epoch=True, prog_bar=True)
+        self.log("test/accuracy", metrics["accuracy"], on_epoch=True, prog_bar=True)
         self.log(
-            "test/balanced_accuracy_mean", mean_balanced_accuracy, on_epoch=True, prog_bar=True
+            "test/balanced_accuracy", metrics["balanced_accuracy"], on_epoch=True, prog_bar=True
         )
-        self.log("test/f1_mean", mean_f1, on_epoch=True, prog_bar=True)
-        self.log("test/precision_mean", mean_precision, on_epoch=True, prog_bar=True)
-        self.log("test/recall_mean", mean_recall, on_epoch=True, prog_bar=True)
+        self.log("test/f1", metrics["f1"], on_epoch=True, prog_bar=True)
+        self.log("test/precision", metrics["precision"], on_epoch=True, prog_bar=True)
+        self.log("test/recall", metrics["recall"], on_epoch=True, prog_bar=True)
 
         # clear the outputs for the next test run
         self.test_outputs.clear()
