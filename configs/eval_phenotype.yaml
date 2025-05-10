@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - data: cellular_graph
+  - model: gnn_pred_phenotype
+  - logger: csv
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+  - experiment: null
+
+task_name: "eval"
+
+tags: ["evaluation", "phenotype"]
+
+# passing checkpoint path is necessary for evaluation
+ckpt_path: ???
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: 44

@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - pretrain: pretrain_phenotype
+  - finetune: finetune_phenotype
+  - paths: default
+  - extras: default
+  - hydra: default
+  - hparams_search: null
+  - _self_
+
+task_name: "train_phenotype"
+tags: ["train_phenotype", "pretrain", "finetune"]
+seed: 44
+subgraph_size: 3

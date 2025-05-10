@@ -1,0 +1,36 @@
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${paths.output_dir}/checkpoints # directory to save the model file
+  filename: "epoch_{epoch:03d}" # checkpoint filename
+  monitor: "train/loss" # name of the logged metric which determines when model is improving
+  verbose: False # verbosity mode
+  save_last: True # additionally always save an exact copy of the last checkpoint to a file last.ckpt
+  save_top_k: 1 # save k best models (determined by above metric)
+  mode: "min" # "max" means higher metric value is better, can be also "min"
+  auto_insert_metric_name: True # when True, the checkpoints filenames will contain the metric name
+  save_weights_only: False # if True, then only the model’s weights will be saved
+  every_n_train_steps: null # number of training steps between checkpoints
+  train_time_interval: null # checkpoints are monitored at the specified time interval
+  every_n_epochs: null # number of epochs between checkpoints
+  save_on_train_epoch_end: True # whether to run checkpointing at the end of the training epoch or the end of validation
+
+early_stopping:
+  _target_: lightning.pytorch.callbacks.EarlyStopping
+  monitor: "train/loss" # quantity to be monitored, must be specified (here or in default.yaml) !!!
+  min_delta: 0. # minimum change in the monitored quantity to qualify as an improvement
+  patience: 5000 # number of checks with no improvement after which training will be stopped
+  verbose: False # verbosity mode
+  mode: "min" # "max" means higher metric value is better, can be also "min"
+  strict: True # whether to crash the training if monitor is not found in the validation metrics
+  check_finite: True # when set True, stops training when the monitor becomes NaN or infinite
+  stopping_threshold: null # stop training immediately once the monitored quantity reaches this threshold
+  divergence_threshold: null # stop training as soon as the monitored quantity becomes worse than this threshold
+  check_on_train_epoch_end: True # whether to run early stopping at the end of the training epoch
+  # log_rank_zero_only: False  # this keyword argument isn't available in stable version
+
+model_summary:
+  _target_: lightning.pytorch.callbacks.RichModelSummary
+  max_depth: -1 # the maximum depth of layer nesting that the summary will include
+
+rich_progress_bar:
+  _target_: lightning.pytorch.callbacks.RichProgressBar
