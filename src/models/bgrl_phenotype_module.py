@@ -160,9 +160,10 @@ class BGRLPhenotypeLitModule(LightningModule):
                 "Invalid mode. Choose either 'pretraining', 'finetuning', or 'evaluation."
             )
 
-        # loss metrics (only calculated during pretraining or finetuning)
+        # loss metrics
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
+        self.test_loss = MeanMetric()
 
         # initialize momentum scheduler
         self.momentum_scheduler = MomentumScheduler(
@@ -339,25 +340,27 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.drop_feat_p2,
             )
 
-            augmented1 = transform1(batch)
-            augmented2 = transform2(batch)
+            # augmented1 = transform1(batch)
+            # augmented2 = transform2(batch)
+            augmented1 = batch
+            augmented2 = batch
 
             # forward pass
             q1, y2 = self.forward_bgrl(
                 augmented1.x,
                 augmented1.edge_index,
-                augmented1.edge_weight,
+                augmented1.edge_attr,
                 augmented2.x,
                 augmented2.edge_index,
-                augmented2.edge_weight,
+                augmented2.edge_attr,
             )
             q2, y1 = self.forward_bgrl(
                 augmented2.x,
                 augmented2.edge_index,
-                augmented2.edge_weight,
+                augmented2.edge_attr,
                 augmented1.x,
                 augmented1.edge_index,
-                augmented1.edge_weight,
+                augmented1.edge_attr,
             )
 
             # compute cosine similarity loss
@@ -384,8 +387,6 @@ class BGRLPhenotypeLitModule(LightningModule):
         # log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
-        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
-        self.log("train/lr", current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
         # update target network in pretraining mode
         if self.mode == "pretraining":
@@ -470,7 +471,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         # calculate the loss for the batch
         loss = self.criterion(y_pred, y_true, batch.w[0])
         self.val_loss(loss)
-        self.log("val/loss", self.val_loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
         """
@@ -484,6 +485,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         metrics = self.calculate_metrics(y_preds, y_trues)
 
         # log the results
+        self.log("val/loss", self.val_loss, on_epoch=True, prog_bar=True)
         self.log("val/auroc", metrics["auroc"], on_epoch=True, prog_bar=True)
         self.log("val/accuracy", metrics["accuracy"], on_epoch=True, prog_bar=True)
         self.log(
@@ -530,6 +532,11 @@ class BGRLPhenotypeLitModule(LightningModule):
             }
         )
 
+        # calculate the loss for the batch
+        loss = self.criterion(y_pred, y_true, batch.w[0])
+        self.test_loss(loss)
+        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
+
     def on_test_epoch_end(self) -> None:
         """
         Aggregate metrics at the end of the test epoch and log the results.
@@ -542,6 +549,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         metrics = self.calculate_metrics(y_preds, y_trues)
 
         # log the results
+        self.log("test/loss", self.test_loss, on_epoch=True, prog_bar=True)
         self.log("test/auroc", metrics["auroc"], on_epoch=True, prog_bar=True)
         self.log("test/accuracy", metrics["accuracy"], on_epoch=True, prog_bar=True)
         self.log(

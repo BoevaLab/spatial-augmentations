@@ -126,7 +126,7 @@ class DropEdges:
             data.edge_index, p=self.p, force_undirected=self.force_undirected
         )
         data.edge_index = edge_index
-        data.edge_weight = data.edge_weight[edge_mask]
+        data.edge_attr = data.edge_attr[edge_mask]
         return data
 
     def __repr__(self):
