@@ -94,18 +94,12 @@ class CellularGraphDataset(Dataset):
         batch_size: int,
         num_iterations: int,
         training: bool,
-        node_features: list = [
-            "cell_type",
-            "size",
-            "biomarker_expression",
-            "neighborhood_composition",
-            "center_coord",
-        ],
-        edge_features: list = ["edge_type", "distance"],
-        node_features_to_use: list = ["cell_type", "size"],
-        edge_features_to_use: list = ["edge_type"],
-        sampling_avoid_unassigned: bool = True,
-        unassigned_cell_type: str = "Unassigned",
+        node_features: list,
+        edge_features: list,
+        node_features_to_use: list,
+        edge_features_to_use: list,
+        sampling_avoid_unassigned: bool,
+        unassigned_cell_type: str,
     ) -> None:
         """
         Initializes the CellularGraphDataset.
@@ -127,17 +121,17 @@ class CellularGraphDataset(Dataset):
         training : bool
             Whether the dataset is used for training or evaluation.
         node_features : list, optional
-            List of node features to be included in the dataset. Default is ["cell_type", "expression", "neighborhood_composition", "center_coord"].
+            List of node features to be included in the dataset.
         edge_features : list, optional
-            List of edge features to be included in the dataset. Default is ["edge_type", "distance"].
+            List of edge features to be included in the dataset.
         node_features_to_use : list, optional
-            List of node features to be used by the model. Default is ["cell_type", "size"].
+            List of node features to be used by the model.
         edge_features_to_use : list, optional
-            List of edge features to be used by the model. Default is ["edge_type"].
+            List of edge features to be used by the model.
         sampling_avoid_unassigned : bool, optional
-            Whether to avoid sampling unassigned cells during subgraph sampling. Default is True.
+            Whether to avoid sampling unassigned cells during subgraph sampling.
         unassigned_cell_type : str, optional
-            The cell type to be considered as unassigned. Default is "Unassigned".
+            The cell type to be considered as unassigned.
         """
         super().__init__()
         self.training = training
@@ -207,7 +201,8 @@ class CellularGraphDataset(Dataset):
             otherwise, it returns the number of regions in the dataset.
         """
         if self.training:
-            return self.batch_size * self.num_iterations
+            # return self.batch_size * self.num_iterations
+            return self.batch_size
         else:
             return len(self.regions)
 

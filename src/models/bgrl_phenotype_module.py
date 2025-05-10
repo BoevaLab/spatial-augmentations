@@ -160,8 +160,9 @@ class BGRLPhenotypeLitModule(LightningModule):
                 "Invalid mode. Choose either 'pretraining', 'finetuning', or 'evaluation."
             )
 
-        # loss metrics (only calculated during training)
+        # loss metrics (only calculated during pretraining or finetuning)
         self.train_loss = MeanMetric()
+        self.val_loss = MeanMetric()
 
         # initialize momentum scheduler
         self.momentum_scheduler = MomentumScheduler(
@@ -465,6 +466,11 @@ class BGRLPhenotypeLitModule(LightningModule):
                 "region_id": region_id,
             }
         )
+
+        # calculate the loss for the batch
+        loss = self.criterion(y_pred, y_true, batch.w[0])
+        self.val_loss(loss)
+        self.log("val/loss", self.val_loss, on_step=True, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
         """
