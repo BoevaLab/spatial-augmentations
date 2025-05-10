@@ -18,7 +18,7 @@ class DropFeatures:
     p : float
         The probability of dropping a feature. Must be between 0 and 1.
     cell_type_feat : int, optional
-        The index of the feature to treat as "cell type". If None, no special handling is applied. Default is None.
+        The index of the feature to treat as "cell type". If None, no special handling is applied. Default is 0.
     unassigned_value : float, optional
         The value to assign to the "cell type" feature when it is dropped. Default is 0.
 
@@ -30,7 +30,7 @@ class DropFeatures:
         Returns a string representation of the transformation.
     """
 
-    def __init__(self, p, cell_type_feat=None, unassigned_value=0):
+    def __init__(self, p, cell_type_feat=0, unassigned_value=0):
         assert 0.0 < p < 1.0, "Dropout probability has to be between 0 and 1, but got %.2f" % p
         self.p = p
         self.cell_type_feat = cell_type_feat

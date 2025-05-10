@@ -340,10 +340,8 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.drop_feat_p2,
             )
 
-            # augmented1 = transform1(batch)
-            # augmented2 = transform2(batch)
-            augmented1 = batch
-            augmented2 = batch
+            augmented1 = transform1(batch)
+            augmented2 = transform2(batch)
 
             # forward pass
             q1, y2 = self.forward_bgrl(
