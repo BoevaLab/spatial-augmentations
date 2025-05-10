@@ -1,37 +1,3 @@
-"""
-Evaluation Script for Spatial Omics Models.
-
-This script handles the evaluation of pre-trained models using PyTorch Lightning. It leverages Hydra for configuration
-management and supports features such as logging, hyperparameter tracking, and flexible checkpoint loading.
-
-Main Features:
---------------
-- Instantiates the data module, model, trainer, and loggers based on the provided Hydra configuration.
-- Evaluates the model on the test dataset using a specified checkpoint.
-- Logs hyperparameters and metrics for experiment tracking.
-- Supports additional utilities such as crash handling and configuration tree printing.
-
-Usage:
-------
-Evaluate on CPU:
->>> python src/eval.py trainer=cpu ckpt_path=/path/to/checkpoint.ckpt
-Evaluate on GPU:
->>> python src/eval.py trainer=gpu ckpt_path=/path/to/checkpoint.ckpt
-Evaluate on MacOS with MPS:
->>> python src/eval.py trainer=mps ckpt_path=/path/to/checkpoint.ckpt
-Evaluate on multiple GPUs:
->>> python src/eval.py trainer=gpu trainer.devices=2 ckpt_path=/path/to/checkpoint.ckpt
-Evaluate model with chosen experiment configuration from configs/experiment/:
->>> python src/eval.py experiment=experiment_name.yaml ckpt_path=/path/to/checkpoint.ckpt
-You can override any parameter from the command line like this:
->>> python src/eval.py trainer.max_epochs=20 data.batch_size=64 ckpt_path=/path/to/checkpoint.ckpt
-
-Functions:
-----------
-- evaluate: Handles the core evaluation logic, including model and datamodule instantiation.
-- main: Entry point for the script, integrates Hydra for configuration management.
-"""
-
 import sys
 from typing import Any, Dict, List, Tuple
 
