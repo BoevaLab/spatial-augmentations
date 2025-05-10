@@ -49,6 +49,7 @@ from torch_geometric.utils import k_hop_subgraph
 from tqdm import tqdm
 
 from src.utils import RankedLogger
+from src.utils.samplers import SubgraphSampler
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -92,7 +93,6 @@ class CellularGraphDataset(Dataset):
         json_path: str,
         subgraph_size: int,
         batch_size: int,
-        num_iterations: int,
         training: bool,
         node_features: list,
         edge_features: list,
@@ -116,8 +116,6 @@ class CellularGraphDataset(Dataset):
             The size of each subgraph (k-hop).
         batch_size : int
             The batch size for subgraph sampling.
-        num_iterations : int
-            The number of iterations for subgraph sampling.
         training : bool
             Whether the dataset is used for training or evaluation.
         node_features : list, optional
@@ -142,8 +140,10 @@ class CellularGraphDataset(Dataset):
 
         # initialize subgraph parameters
         self.subgraph_size = subgraph_size
-        self.num_iterations = num_iterations
         self.batch_size = batch_size
+
+        # initialize cache for graphs
+        self.cached_data = {}
 
         # initinalize cell type mapping, frequency, and biomarkers
         ct_mapping_path = os.path.join(json_path, "cell_type_mapping.json")
@@ -197,14 +197,26 @@ class CellularGraphDataset(Dataset):
         Returns:
         --------
         int
-            If training, it returns the number of subgraphs to be sampled (which batch_size * num_iterations);
-            otherwise, it returns the number of regions in the dataset.
+            Returns the number of regions in the dataset.
         """
-        if self.training:
-            # return self.batch_size * self.num_iterations
-            return self.batch_size
-        else:
-            return len(self.regions)
+        return len(self.regions)
+
+    def load_to_cache(self, idx, subgraphs=True):
+        data = self.get_graph(idx)
+        self.cached_data[idx] = data
+        if subgraphs:
+            subgraphs_path = os.path.join(
+                self.graph_dir, f"{data.region_id}.{self.subgraph_size}-hop.gpt"
+            )
+            if os.path.exists(subgraphs_path):
+                subgraph_list = torch.load(subgraphs_path, weights_only=False)  # nosec B614
+                for i, sg in enumerate(subgraph_list):
+                    self.cached_data[(idx, i)] = sg
+            else:
+                raise FileNotFoundError(f"{subgraphs_path} not found.")
+
+    def clear_cache(self):
+        self.cached_data = {}
 
     def pick_center_node(self, graph: Data) -> int:
         """
@@ -495,8 +507,10 @@ class CellularGraphDataModule(LightningDataModule):
         Path to the JSON file containing cell type mapping and frequency.
     subgraph_size : int
         Size of each subgraph (k-hop).
-    num_iterations : int
-        Number of iterations for subgraph sampling.
+    num_regions_per_segment : int
+        Number of regions per segment for subgraph sampling.
+    steps_per_segment : int
+        Number of steps per segment for subgraph sampling.
     sampling_avoid_unassigned : bool
         Whether to avoid sampling unassigned cells during subgraph sampling.
     unassigned_cell_type : str
@@ -529,7 +543,8 @@ class CellularGraphDataModule(LightningDataModule):
         pin_memory: bool,
         json_path: str,
         subgraph_size: int,
-        num_iterations: int,
+        num_regions_per_segment: int,
+        steps_per_segment: int,
         node_features: list,
         edge_features: list,
         node_features_to_use: list,
@@ -561,8 +576,10 @@ class CellularGraphDataModule(LightningDataModule):
             Path to the JSON file containing cell type mapping and frequency.
         subgraph_size : int
             Size of each subgraph (k-hop).
-        num_iterations : int
-            Number of iterations for subgraph sampling.
+        num_regions_per_segment : int
+            Number of regions per segment for subgraph sampling.
+        steps_per_segment : int
+            Number of steps per segment for subgraph sampling.
         node_features : list
             List of node features to be included in the dataset.
         edge_features : list
@@ -797,7 +814,6 @@ class CellularGraphDataModule(LightningDataModule):
                     json_path=self.hparams.json_path,
                     subgraph_size=self.hparams.subgraph_size,
                     batch_size=self.hparams.batch_size,
-                    num_iterations=self.hparams.num_iterations,
                     training=self.hparams.training,
                     node_features=self.hparams.node_features,
                     edge_features=self.hparams.edge_features,
@@ -869,7 +885,7 @@ class CellularGraphDataModule(LightningDataModule):
         np.random.seed(base_seed + worker_id)
         random.seed(base_seed + worker_id)
 
-    def train_dataloader(self) -> DataLoader:
+    def train_dataloader(self) -> SubgraphSampler:
         """
         Return the train dataloader.
 
@@ -878,14 +894,14 @@ class CellularGraphDataModule(LightningDataModule):
         DataLoader
             A PyTorch Geometric DataLoader for the training dataset.
         """
-        return DataLoader(
+        return SubgraphSampler(
             dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
+            num_regions_per_segment=self.hparams.num_regions_per_segment,
+            steps_per_segment=self.hparams.steps_per_segment,
             num_workers=self.hparams.num_workers,
-            worker_init_fn=self.worker_init_fn,
-            persistent_workers=self.hparams.num_workers > 0,
+            seed=self.hparams.seed,
             pin_memory=self.hparams.pin_memory,
-            shuffle=True,
         )
 
     def val_dataloader(self) -> DataLoader:
