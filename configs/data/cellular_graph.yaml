@@ -1,0 +1,27 @@
+_target_: src.data.cellular_graph_datamodule.CellularGraphDataModule
+mode: ???
+data_dir: ${paths.data_dir}phenotype/nsclc/raw/
+processed_dir: ${paths.data_dir}phenotype/nsclc/processed/
+batch_size: 64
+num_workers: 4
+pin_memory: True
+json_path: ${paths.data_dir}phenotype/nsclc/json_files/
+subgraph_size: 3
+num_regions_per_segment: 32
+steps_per_segment: 1000
+node_features:
+  [
+    "cell_type",
+    "size",
+    "biomarker_expression",
+    "neighborhood_composition",
+    "center_coord",
+  ]
+edge_features: ["edge_type", "distance"]
+node_features_to_use: ["cell_type", "size"]
+edge_features_to_use: ["edge_type"]
+sampling_avoid_unassigned: True
+unassigned_cell_type: "other"
+graph_tasks: ["RELAPSE"]
+redo_preprocess: False
+seed: ${seed}
