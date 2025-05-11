@@ -46,7 +46,7 @@ hydra:
     # define hyperparameter search space
     params:
       pretrain.model.net.encoder.drop_ratio: interval(0.1, 0.5)
-      pretrain.model.optimizer.lr: interval(0.00001, 0.001)
+      pretrain.model.optimizer.lr: interval(0.0001, 0.01)
       pretrain.model.optimizer.weight_decay: interval(0.0, 0.1)
       pretrain.model.mm: interval(0.9, 0.99)
       pretrain.model.drop_edge_p1: interval(0.1, 0.4)
@@ -55,6 +55,6 @@ hydra:
       pretrain.model.drop_feat_p2: interval(0.1, 0.4)
 
       finetune.model.net.drop_ratio: interval(0.1, 0.5)
-      finetune.model.optimizer.lr: interval(0.00001, 0.001)
+      finetune.model.optimizer.lr: interval(0.000001, 0.0001)
       finetune.model.optimizer.weight_decay: interval(0.0, 0.1)
       finetune.model.mm: interval(0.9, 0.99)
