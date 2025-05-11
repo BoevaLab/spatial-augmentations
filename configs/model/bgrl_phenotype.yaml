@@ -6,7 +6,7 @@ net:
   _target_: src.models.components.bgrl.BGRL
   encoder:
     _target_: src.models.components.gnn.GNN
-    num_layer: ${subgraph_size}
+    num_layer: ${pretrain.data.subgraph_size}
     num_node_type: 30
     num_feat: 76
     emb_dim: 256

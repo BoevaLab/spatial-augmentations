@@ -8,8 +8,8 @@ defaults:
   - hydra: default
   - hparams_search: null
   - _self_
+  - experiment: null
 
 task_name: "train_phenotype"
 tags: ["train_phenotype", "pretrain", "finetune"]
 seed: 44
-subgraph_size: 3
