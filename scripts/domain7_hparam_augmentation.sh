@@ -4,7 +4,7 @@
 #SBATCH --output=logs/slurm/domain7_hparam_augmentation/%j.out
 #SBATCH -p gpu
 #SBATCH --gres=gpu:rtx4090:1
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --cpus-per-task=6
 #SBATCH --time=48:00:00
 
