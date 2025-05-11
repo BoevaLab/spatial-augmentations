@@ -20,9 +20,9 @@ net:
     hidden_size: 512
 
 optimizer:
-  _target_: torch.optim.Adam
+  _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.0005
+  lr: 0.005
   weight_decay: 1e-4
 
 scheduler:
