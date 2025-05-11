@@ -193,7 +193,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     # safely retrieve metric value for hydra-based hyperparameter optimization
     # in this case the finetuning metric is the metric to be optimized
     metric_value = get_metric_value(
-        metric_dict=finetune_metric_dict, metric_name=cfg.finetune.get("optimized_metric")
+        metric_dict=finetune_metric_dict, metric_name=cfg.get("optimized_metric")
     )
 
     # return optimized metric
