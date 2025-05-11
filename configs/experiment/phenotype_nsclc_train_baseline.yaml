@@ -1,0 +1,43 @@
+# @package _global_
+
+defaults:
+  - override /data@finetune.data: cellular_graph
+  - override /model@finetune.model: gnn_pred_phenotype
+  - override /trainer@finetune.trainer: gpu
+
+  - override /data@pretrain.data: cellular_graph
+  - override /model@pretrain.model: bgrl_phenotype
+  - override /trainer@pretrain.trainer: gpu
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+task_name: "phenotype_nsclc_train_baseline"
+tags: ["phenotype", "nsclc", "train", "baseline"]
+
+pretrain:
+  data:
+    mode: "pretraining"
+
+  model:
+    augmentation_mode: "baseline"
+    augmentation_list1: ["DropFeatures", "DropEdges"]
+    augmentation_list2: ["DropFeatures", "DropEdges"]
+
+  trainer:
+    min_epochs: 1
+    max_epochs: 50000
+    log_every_n_steps: 10
+    check_val_every_n_epoch: 99999
+    limit_train_batches: 1
+
+finetune:
+  data:
+    mode: "finetuning"
+
+  trainer:
+    min_epochs: 1
+    max_epochs: 50000
+    log_every_n_steps: 10
+    check_val_every_n_epoch: 1000
+    limit_train_batches: 1
