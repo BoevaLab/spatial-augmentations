@@ -3,11 +3,11 @@
 defaults:
   - override /data@finetune.data: cellular_graph
   - override /model@finetune.model: gnn_pred_phenotype
-  - override /trainer@finetune.trainer: cpu
+  - override /trainer@finetune.trainer: gpu
 
   - override /data@pretrain.data: cellular_graph
   - override /model@pretrain.model: bgrl_phenotype
-  - override /trainer@pretrain.trainer: cpu
+  - override /trainer@pretrain.trainer: gpu
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters

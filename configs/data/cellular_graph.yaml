@@ -4,7 +4,7 @@ data_dir: ${paths.data_dir}phenotype/nsclc/raw/
 processed_dir: ${paths.data_dir}phenotype/nsclc/processed/
 batch_size: 64
 num_workers: 4
-pin_memory: False
+pin_memory: True
 json_path: ${paths.data_dir}phenotype/nsclc/json_files/
 subgraph_size: 3
 num_regions_per_segment: 32

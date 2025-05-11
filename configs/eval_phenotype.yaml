@@ -11,7 +11,7 @@ defaults:
   - hydra: default
   - experiment: null
 
-task_name: "eval"
+task_name: "eval_phenotype"
 
 tags: ["evaluation", "phenotype"]
 
