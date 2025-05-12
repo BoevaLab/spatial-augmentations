@@ -305,6 +305,46 @@ class BGRLPhenotypeLitModule(LightningModule):
         else:
             return bce_loss.sum()
 
+    def freeze_encoder(self):
+        """
+        Freezes the parameters of the GNN encoder by disabling gradient computation.
+
+        This is typically used during the initial warmup phase of finetuning to allow
+        the prediction head to adapt before updating the encoder.
+        """
+        for param in self.net.gnn.parameters():
+            param.requires_grad = False
+        self.encoder_frozen = True
+        log.info("Encoder frozen.")
+
+    def unfreeze_encoder(self):
+        """
+        Unfreezes the parameters of the GNN encoder to enable gradient computation.
+
+        This should be called after the warmup period, allowing the encoder to be fine-tuned.
+        """
+        for param in self.net.gnn.parameters():
+            param.requires_grad = True
+        self.encoder_frozen = False
+        log.info("Encoder unfrozen.")
+
+    def on_train_epoch_start(self):
+        """
+        Called at the beginning of each training epoch.
+
+        Automatically freezes or unfreezes the encoder based on the current training step
+        and the configured warmup period (`hparams.warmup_steps`).
+        """
+        # freeze encoder for the warmup period
+        if self.global_step < self.hparams.warmup_steps and not getattr(
+            self, "encoder_frozen", False
+        ):
+            self.freeze_encoder()
+        elif self.global_step >= self.hparams.warmup_steps and getattr(
+            self, "encoder_frozen", True
+        ):
+            self.unfreeze_encoder()
+
     def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
         """
         Perform a single training step.
@@ -386,6 +426,8 @@ class BGRLPhenotypeLitModule(LightningModule):
         # log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=True, prog_bar=True)
+        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log("train/lr", current_lr, on_step=True, on_epoch=True, prog_bar=True)
 
         # update target network in pretraining mode
         if self.mode == "pretraining":
