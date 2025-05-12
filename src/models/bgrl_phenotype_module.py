@@ -425,6 +425,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         }
 
         # compute balanced accuracy
+        self.val_confusion_matrix = self.val_confusion_matrix.to("cpu")
         cm = self.val_confusion_matrix(preds, labels)
         tn, fp, fn, tp = cm.flatten()
         sensitivity = tp / (tp + fn + 1e-8)
