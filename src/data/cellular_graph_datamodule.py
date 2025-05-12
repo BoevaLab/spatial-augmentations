@@ -817,6 +817,9 @@ class CellularGraphDataModule(LightningDataModule):
                         _y: max_count / val_counts[_y] for _y in unique_vals
                     }
 
+                for task, weights in class_label_weights.items():
+                    log.info(f"Class weights for task '{task}': {weights}")
+
                 # preprocess graphs (optionally in parallel)
                 if self.hparams.num_workers <= 1:
                     log.info("Preprocessing graphs in serial.")
