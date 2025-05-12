@@ -453,10 +453,10 @@ class BGRLPhenotypeLitModule(LightningModule):
         # prediction for graph is the mean of all subgraphs
         with torch.no_grad():
             res = self.net(batch)
-        y_preds = res[0].flatten().detach().cpu()
+        y_preds = res[0].flatten()
 
         # get ground truth labels (graph level, same for all subgraphs)
-        y_trues = batch.y.detach().cpu()
+        y_trues = batch.y
 
         # calculate the loss for the batch
         loss = self.criterion(y_preds, y_trues, batch.w[0])
@@ -466,8 +466,8 @@ class BGRLPhenotypeLitModule(LightningModule):
         # save the predictions, ground truth labels, and region_id for the graph
         self.val_outputs.append(
             {
-                "y_preds": y_preds,  # kept for aggregation with all subgraphs
-                "y_true": y_trues[0],  # same for all subgraphs of a region
+                "y_preds": y_preds.detach().cpu(),  # kept for aggregation with all subgraphs
+                "y_true": y_trues[0].detach().cpu(),  # same for all subgraphs of a region
                 "region_id": region_id,
             }
         )
@@ -533,10 +533,10 @@ class BGRLPhenotypeLitModule(LightningModule):
         # prediction for graph is the mean of all subgraphs
         with torch.no_grad():
             res = self.net(batch)
-        y_preds = res[0].flatten().detach().cpu()
+        y_preds = res[0].flatten()
 
         # get ground truth labels (graph level, same for all subgraphs)
-        y_trues = batch.y.detach().cpu()
+        y_trues = batch.y
 
         # calculate the loss for the batch
         loss = self.criterion(y_preds, y_trues, batch.w[0])
@@ -546,8 +546,8 @@ class BGRLPhenotypeLitModule(LightningModule):
         # save the predictions, ground truth labels, and region_id for the graph
         self.test_outputs.append(
             {
-                "y_preds": y_preds,  # kept for aggregation with all subgraphs
-                "y_true": y_trues[0],  # same for all subgraphs of a region
+                "y_preds": y_preds.detach().cpu(),  # kept for aggregation with all subgraphs
+                "y_true": y_trues.detach().cpu()[0],  # same for all subgraphs of a region
                 "region_id": region_id,
             }
         )
