@@ -9,6 +9,7 @@ json_path: ${paths.data_dir}phenotype/nsclc/json_files/
 subgraph_size: 3
 num_regions_per_segment: 32
 steps_per_segment: 1000
+max_subgraphs_per_item: 600
 node_features:
   [
     "cell_type",

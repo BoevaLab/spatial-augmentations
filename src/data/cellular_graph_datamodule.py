@@ -94,6 +94,7 @@ class CellularGraphDataset(Dataset):
         subgraph_size: int,
         batch_size: int,
         training: bool,
+        max_subgraphs_per_item: int,
         node_features: list,
         edge_features: list,
         node_features_to_use: list,
@@ -116,6 +117,8 @@ class CellularGraphDataset(Dataset):
             The size of each subgraph (k-hop).
         batch_size : int
             The batch size for subgraph sampling.
+        max_subgraphs_per_item : int
+            The maximum number of subgraphs to batdh per region per step during evaluation.
         training : bool
             Whether the dataset is used for training or evaluation.
         node_features : list, optional
@@ -190,6 +193,14 @@ class CellularGraphDataset(Dataset):
         self.node_feature_names = self.get_feature_names(node_features)
         self.edge_feature_names = self.get_feature_names(edge_features)
 
+        # add region chunks for validation and testing
+        self.region_subgraph_chunks = []
+        self.max_subgraphs_per_item = max_subgraphs_per_item
+
+        # set subgraph chunks for evaluation
+        if not training:
+            self.set_subgraph_chunks()
+
     def __len__(self) -> int:
         """
         Returns the length of the dataset.
@@ -199,7 +210,18 @@ class CellularGraphDataset(Dataset):
         int
             Returns the number of regions in the dataset.
         """
-        return len(self.regions)
+        if self.training:
+            return len(self.regions)
+        else:
+            return len(self.region_subgraph_chunks)
+
+    def set_subgraph_chunks(self) -> None:
+        for region_idx in range(len(self.regions)):
+            graph = self.get_graph(region_idx)
+            num_subgraphs = graph.num_nodes
+            for start in range(0, num_subgraphs, self.max_subgraphs_per_item):
+                end = min(start + self.max_subgraphs_per_item, num_subgraphs)
+                self.region_subgraph_chunks.append((region_idx, start, end))
 
     def load_to_cache(self, idx, subgraphs=True):
         data = self.get_graph(idx)
@@ -477,7 +499,8 @@ class CellularGraphDataset(Dataset):
         if self.training:
             return self.get_subgraph(idx)
         else:
-            subgraphs = self.get_all_subgraphs(idx)
+            region_idx, start, end = self.region_subgraph_chunks[idx]
+            subgraphs = self.get_all_subgraphs(region_idx)[start:end]
             return Batch.from_data_list(subgraphs)
 
 
@@ -511,6 +534,8 @@ class CellularGraphDataModule(LightningDataModule):
         Number of regions per segment for subgraph sampling.
     steps_per_segment : int
         Number of steps per segment for subgraph sampling.
+    max_subgraphs_per_item : int
+            The maximum number of subgraphs to batdh per region per step during evaluation.
     sampling_avoid_unassigned : bool
         Whether to avoid sampling unassigned cells during subgraph sampling.
     unassigned_cell_type : str
@@ -545,6 +570,7 @@ class CellularGraphDataModule(LightningDataModule):
         subgraph_size: int,
         num_regions_per_segment: int,
         steps_per_segment: int,
+        max_subgraphs_per_item: int,
         node_features: list,
         edge_features: list,
         node_features_to_use: list,
@@ -578,6 +604,8 @@ class CellularGraphDataModule(LightningDataModule):
             Size of each subgraph (k-hop).
         num_regions_per_segment : int
             Number of regions per segment for subgraph sampling.
+        max_subgraphs_per_item : int
+            The maximum number of subgraphs to batdh per region per step during evaluation.
         steps_per_segment : int
             Number of steps per segment for subgraph sampling.
         node_features : list
@@ -815,6 +843,7 @@ class CellularGraphDataModule(LightningDataModule):
                     subgraph_size=self.hparams.subgraph_size,
                     batch_size=self.hparams.batch_size,
                     training=self.hparams.training,
+                    max_subgraphs_per_item=self.hparams.max_subgraphs_per_item,
                     node_features=self.hparams.node_features,
                     edge_features=self.hparams.edge_features,
                     node_features_to_use=self.hparams.node_features_to_use,
@@ -873,12 +902,14 @@ class CellularGraphDataModule(LightningDataModule):
             self.val_dataset.regions = val_regions
             self.val_dataset.training = False
             self.val_dataset.batch_size = 1
+            self.val_dataset.set_subgraph_chunks()
 
             # set the test dataset
             self.test_dataset = copy.deepcopy(self.dataset)
             self.test_dataset.regions = test_regions
             self.test_dataset.training = False
             self.test_dataset.batch_size = 1
+            self.test_dataset.set_subgraph_chunks()
 
     def worker_init_fn(self, worker_id):
         base_seed = torch.initial_seed() % 2**32

@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
 import torch
@@ -452,32 +453,48 @@ class BGRLPhenotypeLitModule(LightningModule):
         # prediction for graph is the mean of all subgraphs
         with torch.no_grad():
             res = self.net(batch)
-        y_pred = res[0].flatten().mean()
+        y_preds = res[0].flatten().detach().cpu()
 
         # get ground truth labels (graph level, same for all subgraphs)
-        y_true = batch.y[0]
+        y_trues = batch.y.detach().cpu()
+
+        # calculate the loss for the batch
+        loss = self.criterion(y_preds, y_trues, batch.w[0])
+        self.val_loss(loss)
+        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # save the predictions, ground truth labels, and region_id for the graph
         self.val_outputs.append(
             {
-                "y_pred": y_pred,
-                "y_true": y_true,
+                "y_preds": y_preds,  # kept for aggregation with all subgraphs
+                "y_true": y_trues[0],  # same for all subgraphs of a region
                 "region_id": region_id,
             }
         )
-
-        # calculate the loss for the batch
-        loss = self.criterion(y_pred, y_true, batch.w[0])
-        self.val_loss(loss)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
         """
         Aggregate metrics at the end of the validation epoch and log the results.
         """
-        # aggregate predictions and labels into tensors
-        y_preds = torch.tensor([d["y_pred"] for d in self.val_outputs], dtype=torch.float)
-        y_trues = torch.tensor([d["y_true"] for d in self.val_outputs], dtype=torch.float)
+        # aggregate all predictions for each region
+        region_preds = defaultdict(list)
+        region_trues = {}
+
+        for d in self.val_outputs:
+            region_id = d["region_id"]
+            region_preds[region_id].append(d["y_preds"])
+            region_trues[region_id] = d["y_true"]
+
+        y_preds, y_trues = [], []
+
+        for region_id, pred_list in region_preds.items():
+            stacked = torch.cat(pred_list)
+            region_pred = stacked.mean()
+            y_preds.append(region_pred)
+            y_trues.append(region_trues[region_id])
+
+        y_preds = torch.stack(y_preds)
+        y_trues = torch.stack(y_trues)
 
         # compute metrics across all graphs
         metrics = self.calculate_metrics(y_preds, y_trues)
@@ -516,32 +533,48 @@ class BGRLPhenotypeLitModule(LightningModule):
         # prediction for graph is the mean of all subgraphs
         with torch.no_grad():
             res = self.net(batch)
-        y_pred = res[0].flatten().mean()
+        y_preds = res[0].flatten().detach().cpu()
 
         # get ground truth labels (graph level, same for all subgraphs)
-        y_true = batch.y[0]
+        y_trues = batch.y.detach().cpu()
+
+        # calculate the loss for the batch
+        loss = self.criterion(y_preds, y_trues, batch.w[0])
+        self.test_loss(loss)
+        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # save the predictions, ground truth labels, and region_id for the graph
         self.test_outputs.append(
             {
-                "y_pred": y_pred,
-                "y_true": y_true,
+                "y_preds": y_preds,  # kept for aggregation with all subgraphs
+                "y_true": y_trues[0],  # same for all subgraphs of a region
                 "region_id": region_id,
             }
         )
-
-        # calculate the loss for the batch
-        loss = self.criterion(y_pred, y_true, batch.w[0])
-        self.test_loss(loss)
-        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_test_epoch_end(self) -> None:
         """
         Aggregate metrics at the end of the test epoch and log the results.
         """
-        # aggregate predictions and labels into tensors
-        y_preds = torch.tensor([d["y_pred"] for d in self.test_outputs], dtype=torch.float)
-        y_trues = torch.tensor([d["y_true"] for d in self.test_outputs], dtype=torch.int)
+        # aggregate all predictions for each region
+        region_preds = defaultdict(list)
+        region_trues = {}
+
+        for d in self.test_outputs:
+            region_id = d["region_id"]
+            region_preds[region_id].append(d["y_preds"])
+            region_trues[region_id] = d["y_true"]
+
+        y_preds, y_trues = [], []
+
+        for region_id, pred_list in region_preds.items():
+            stacked = torch.cat(pred_list)
+            region_pred = stacked.mean()
+            y_preds.append(region_pred)
+            y_trues.append(region_trues[region_id])
+
+        y_preds = torch.stack(y_preds)
+        y_trues = torch.stack(y_trues)
 
         # compute metrics across all graphs
         metrics = self.calculate_metrics(y_preds, y_trues)

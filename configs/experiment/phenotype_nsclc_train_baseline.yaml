@@ -34,6 +34,7 @@ pretrain:
 finetune:
   data:
     mode: "finetuning"
+    redo_preprocess: False
 
   trainer:
     min_epochs: 1
