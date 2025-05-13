@@ -5,6 +5,7 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+import tqdm
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -30,13 +31,13 @@ log = RankedLogger(__name__, rank_zero_only=True)
 def main(cfg: DictConfig):
 
     cfg.pretrain.data.mode = "pretraining"
-    cfg.pretrain.data.num_regions_per_segment = 2
-    cfg.pretrain.data.steps_per_segment = 20
+    cfg.pretrain.data.num_regions_per_segment = None
+    cfg.pretrain.data.steps_per_segment = 50000
 
     cfg.finetune.data.mode = "finetuning"
     cfg.finetune.data.redo_preprocess = False
-    cfg.finetune.data.num_regions_per_segment = 2
-    cfg.finetune.data.steps_per_segment = 100
+    cfg.finetune.data.num_regions_per_segment = None
+    cfg.finetune.data.steps_per_segment = 50000
 
     cfg.task_name = "test"
 
@@ -45,7 +46,7 @@ def main(cfg: DictConfig):
     cfg.pretrain.model.augmentation_list2 = ["DropFeatures", "DropEdges"]
 
     cfg.pretrain.trainer.min_epochs = 1
-    cfg.pretrain.trainer.max_epochs = 100
+    cfg.pretrain.trainer.max_epochs = 50000
     cfg.pretrain.trainer.log_every_n_steps = 10
     cfg.pretrain.trainer.check_val_every_n_epoch = 99999
     cfg.pretrain.trainer.limit_train_batches = 1
@@ -58,23 +59,31 @@ def main(cfg: DictConfig):
 
     extras(cfg)
 
-    print(f"Instantiating datamodule <{cfg.finetune.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.finetune.data)
+    print(f"Instantiating datamodule <{cfg.pretrain.data._target_}>")
+    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.pretrain.data)
     datamodule.setup()
 
-    cfg.finetune.model.ckpt_file = "logs/epoch_epoch=8021.ckpt"
+    all_regions = []
+    for idx, batch in enumerate(datamodule.train_dataloader()):
+        all_regions.extend(batch.region_id)
+        if idx > 500:
+            break
 
-    print(f"Instantiating model <{cfg.finetune.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.finetune.model)
+    print(len(set(all_regions)))
 
-    log.info(f"Instantiating trainer <{cfg.finetune.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.finetune.trainer)
+    # cfg.finetune.model.ckpt_file = "logs/epoch_epoch=8021.ckpt"
 
-    if cfg.pretrain.get("train"):
-        print("Starting training!")
-        # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+    # print(f"Instantiating model <{cfg.finetune.model._target_}>")
+    # model: LightningModule = hydra.utils.instantiate(cfg.finetune.model)
 
-    trainer.validate(model=model, datamodule=datamodule)
+    # log.info(f"Instantiating trainer <{cfg.finetune.trainer._target_}>")
+    # trainer: Trainer = hydra.utils.instantiate(cfg.finetune.trainer)
+
+    # if cfg.pretrain.get("train"):
+    #    print("Starting training!")
+    # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+
+    # trainer.validate(model=model, datamodule=datamodule)
 
 
 if __name__ == "__main__":

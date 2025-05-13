@@ -457,7 +457,9 @@ class CellularGraphDataset(Dataset):
         # randomly select a center node from the graph and load or build a k-hop subgraph
         center_node_ind = self.pick_center_node(graph)
 
+        # NOT USED
         # loading subgraph is slower in this case so not used
+        # loading into cache is faster but not used due to memory constraints
         # load the subgraph from the chunk file if it exists
         # path = os.path.join(self.graph_dir, f"{graph.region_id}.{self.subgraph_size}-hop.gpt")
         # if os.path.exists(path):
@@ -780,7 +782,7 @@ class CellularGraphDataModule(LightningDataModule):
                 # load preprocessed graphs and not redo preprocessing
                 self.dataset = torch.load(processed_file, weights_only=False)  # nosec B614
                 log.info(
-                    f"Loaded preprocessed graphs from {os.path.join(self.hparams.processed_dir, processed_file)}."
+                    f"Loaded preprocessed dataset from {os.path.join(self.hparams.processed_dir, processed_file)}."
                 )
             else:
                 # preprocess data and save to disk
@@ -931,7 +933,7 @@ class CellularGraphDataModule(LightningDataModule):
         return SubgraphSampler(
             dataset=self.train_dataset,
             batch_size=self.batch_size_per_device,
-            num_regions_per_segment=self.hparams.num_regions_per_segment,
+            num_regions_per_segment=len(self.train_dataset.regions),
             steps_per_segment=self.hparams.steps_per_segment,
             num_workers=self.hparams.num_workers,
             seed=self.hparams.seed,

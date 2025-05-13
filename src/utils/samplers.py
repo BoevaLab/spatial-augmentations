@@ -14,6 +14,11 @@ class InfDataLoader(DataLoader):
     """
 
     def __len__(self):
+        """
+        Return a large number to simulate an infinite DataLoader.
+        This is a workaround for the fact that DataLoader's __len__ method
+        is not designed to be infinite.
+        """
         return int(1e10)
 
 
@@ -101,9 +106,10 @@ class SubgraphSampler:
         selected_region_names = [self.all_region_ids[i] for i in region_inds]
         self.dataset.regions = selected_region_names
 
+        # NOT USED
         # pre-load subgraphs from disk (chunked)
-        for i in range(len(self.dataset.regions)):
-            self.dataset.load_to_cache(i, subgraphs=True)
+        # for i in range(len(self.dataset.regions)):
+        #    self.dataset.load_to_cache(i, subgraphs=True)
 
         sampler = RandomSampler(self.dataset, replacement=True, num_samples=int(1e10))
         loader = InfDataLoader(

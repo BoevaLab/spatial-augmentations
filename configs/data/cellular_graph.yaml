@@ -7,8 +7,8 @@ num_workers: 4
 pin_memory: True
 json_path: ${paths.data_dir}phenotype/nsclc/json_files/
 subgraph_size: 3
-num_regions_per_segment: 32
-steps_per_segment: 1000
+num_regions_per_segment: None # set to all regions in datamodule code
+steps_per_segment: 50000
 max_subgraphs_per_item: 600
 node_features:
   [
