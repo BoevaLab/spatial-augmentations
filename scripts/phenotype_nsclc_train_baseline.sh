@@ -4,7 +4,7 @@
 #SBATCH --output=logs/slurm/phenotype_nsclc_train_baseline/%j.out
 #SBATCH -p gpu
 #SBATCH --gres=gpu:1
-#SBATCH --mem=128G
+#SBATCH --mem=96G
 #SBATCH --cpus-per-task=6
 #SBATCH --time=10:00:00
 
