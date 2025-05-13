@@ -30,7 +30,7 @@ class DropFeatures:
         Returns a string representation of the transformation.
     """
 
-    def __init__(self, p, cell_type_feat=0, unassigned_value=0):
+    def __init__(self, p, cell_type_feat=0, unassigned_value=22):
         assert 0.0 < p < 1.0, "Dropout probability has to be between 0 and 1, but got %.2f" % p
         self.p = p
         self.cell_type_feat = cell_type_feat
