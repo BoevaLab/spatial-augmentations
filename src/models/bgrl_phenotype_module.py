@@ -554,6 +554,12 @@ class BGRLPhenotypeLitModule(LightningModule):
         self.log("val/precision", metrics["precision"], on_epoch=True, prog_bar=True)
         self.log("val/recall", metrics["recall"], on_epoch=True, prog_bar=True)
 
+        # log best F1 score for hparams search
+        current_f1 = metrics["f1"]
+        if not hasattr(self, "best_f1") or current_f1 > self.best_f1:
+            self.best_f1 = current_f1
+        self.log("val/f1_best", self.best_f1, on_epoch=True, prog_bar=True)
+
         # clear the outputs for the next validation run
         self.val_outputs.clear()
 
