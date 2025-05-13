@@ -562,6 +562,7 @@ class BGRLPhenotypeLitModule(LightningModule):
 
         # clear the outputs for the next validation run
         self.val_outputs.clear()
+        log.info("Validation done.")
 
     def test_step(self, batch: list[Data], batch_idx: int) -> None:
         """
