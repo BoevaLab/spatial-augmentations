@@ -56,6 +56,6 @@ hydra:
       model.drop_feat_p2: interval(0.1, 0.4)
       #model.p_rewire: interval(0.1, 0.4)
       #model.p_shuffle: interval(0.1, 0.4)
-      model.spatial_noise_std: interval(0.01, 0.1)
-      model.feature_noise_std: interval(0.01, 0.1)
+      model.spatial_noise_std: interval(2.0, 30.0)
+      model.feature_noise_std: interval(0.05, 1.0)
       model.spatial_regularization_strength: interval(0.0, 0.5)
