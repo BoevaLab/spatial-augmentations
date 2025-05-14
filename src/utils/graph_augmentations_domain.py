@@ -25,12 +25,54 @@ Functions:
 # TODO: implement low-pass filter for features
 
 from copy import deepcopy
+from typing import Tuple
 
 import numpy as np
 import torch
 from torch_geometric.transforms import Compose
-from torch_geometric.utils import degree, dropout_edge
+from torch_geometric.utils import coalesce, degree, dropout_edge
 from torch_sparse import SparseTensor
+
+
+def remove_directed_edges(
+    edge_index: torch.Tensor, edge_weight: torch.Tensor = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Removes all directed (asymmetric) edges from the graph.
+    Keeps only edges (i, j) where (j, i) also exists.
+
+    Parameters:
+    -----------
+    edge_index : torch.Tensor
+        Edge index of shape [2, E].
+    edge_weight : torch.Tensor, optional
+        Edge weights of shape [E], if provided.
+
+    Returns:
+    --------
+    (edge_index, edge_weight): Tuple[Tensor, Tensor or None]
+        Filtered edge_index and edge_weight (if given).
+    """
+    N = edge_index.max().item() + 1
+    src, dst = edge_index[0], edge_index[1]
+
+    edge_ids = src * N + dst
+    reverse_ids = dst * N + src
+
+    edge_id_set = set(edge_ids.tolist())
+    reverse_id_set = set(reverse_ids.tolist())
+    symmetric_ids = edge_id_set & reverse_id_set
+
+    if not symmetric_ids:
+        return edge_index.new_empty((2, 0)), None if edge_weight is not None else None
+
+    symmetric_ids = torch.tensor(list(symmetric_ids), device=edge_index.device)
+    keep_mask = torch.isin(edge_ids, symmetric_ids)
+
+    filtered_edge_index = edge_index[:, keep_mask]
+    filtered_edge_weight = edge_weight[keep_mask] if edge_weight is not None else None
+
+    return filtered_edge_index, filtered_edge_weight
 
 
 class DropFeatures:
@@ -186,7 +228,7 @@ class DropImportance:
     mu : float
         A hyperparameter that controls the overall proportion of masking nodes and edges.
     p_lambda : float
-        A threshold value to prevent masking nodes or edges with high importance. Must be between 0 and 1.
+        A threshold value to prevent masking unimportant nodes or edges with too high probabilities. Must be between 0 and 1.
 
     Methods:
     --------
@@ -222,57 +264,43 @@ class DropImportance:
         Data
             The transformed graph data with some features and edges dropped based on importance.
         """
-        # calculate degree centrality for each node
-        deg = degree(data.edge_index[0], data.num_nodes).float()
-        log_deg = torch.log(deg + 1)
+        edge_index, edge_weight = data.edge_index, data.edge_weight
+        num_nodes = data.num_nodes
+        device = edge_index.device
 
-        # normalize the log degree centrality
-        max_log_deg = log_deg.max()
-        avg_log_deg = log_deg.mean()
-        node_importance = (log_deg - avg_log_deg) / (max_log_deg - avg_log_deg + 1e-8)
-        node_importance = torch.clamp(node_importance, min=0)
+        # compute log-degree node importance
+        deg = degree(edge_index[0], num_nodes).float()
+        log_deg = torch.log1p(deg)
+        node_imp = (log_deg - log_deg.mean()) / (log_deg.max() - log_deg.mean() + 1e-8)
+        node_imp = torch.clamp(node_imp, min=0)
 
-        # define node sampling probability and create dropout mask
-        node_sampling_prob = torch.min(
-            (1 - node_importance) * self.mu,
-            torch.tensor(self.p_lambda, device=node_importance.device),
+        # compute node keep probability and remove unimportant nodes
+        node_keep_prob = torch.min(
+            (1 - node_imp) * self.mu, torch.full_like(node_imp, self.p_lambda)
         )
-        node_drop_mask = torch.rand_like(data.x[:, 0]) < node_sampling_prob
+        node_mask = torch.rand_like(node_keep_prob) > node_keep_prob
+        data.x[~node_mask] = 0
 
-        # apply the dropout mask to node features
-        data.x[node_drop_mask] = 0
+        # compute edge importance = mean(node_i, node_j)
+        edge_imp = (node_imp[edge_index[0]] + node_imp[edge_index[1]]) / 2
+        edge_imp = (edge_imp - edge_imp.mean()) / (edge_imp.max() - edge_imp.mean() + 1e-8)
+        edge_imp = torch.clamp(edge_imp, min=0)
 
-        # calculate edge importance as the mean of the importance of the two connected nodes
-        edge_importance = (
-            node_importance[data.edge_index[0]] + node_importance[data.edge_index[1]]
-        ) / 2
-
-        # normalize edge importance
-        max_edge_importance = edge_importance.max()
-        avg_edge_importance = edge_importance.mean()
-        edge_importance = (edge_importance - avg_edge_importance) / (
-            max_edge_importance - avg_edge_importance + 1e-8
+        # compute edge keep probability
+        edge_keep_prob = torch.min(
+            (1 - edge_imp) * self.mu, torch.full_like(edge_imp, self.p_lambda)
         )
-        edge_importance = torch.clamp(edge_importance, min=0)
+        edge_mask = torch.rand_like(edge_keep_prob) > edge_keep_prob
 
-        # define edge sampling probability and create dropout mask
-        edge_sampling_prob = torch.min(
-            (1 - edge_importance) * self.mu,
-            torch.tensor(self.p_lambda, device=edge_importance.device),
-        )
-        edge_drop_mask = torch.rand_like(edge_sampling_prob) < edge_sampling_prob
+        # filter both forward and reverse edges
+        ei = edge_index[:, edge_mask]
+        ew = edge_weight[edge_mask] if edge_weight is not None else None
+        ei, ew = remove_directed_edges(ei, ew)
+        ei, ew = coalesce(ei, ew, num_nodes)
 
-        # add reverse edges to dropout mask
-        for i in range(data.edge_index.size(1)):
-            if edge_drop_mask[i]:
-                source = data.edge_index[0, i]
-                target = data.edge_index[1, i]
-                reverse_edge_mask = (data.edge_index[0] == target) & (data.edge_index[1] == source)
-                edge_drop_mask[reverse_edge_mask.nonzero(as_tuple=True)[0]] = True
-
-        # apply the dropout mask to edges
-        data.edge_index = data.edge_index[:, ~edge_drop_mask]
-        data.edge_weight = data.edge_weight[~edge_drop_mask]
+        # update edge index and weights
+        data.edge_index = ei
+        data.edge_weight = ew
 
         return data
 
@@ -785,7 +813,7 @@ def get_graph_augmentation(
     mu : float
         A hyperparameter that controls the overall proportion of masking nodes and edges.
     p_lambda : float
-        A threshold value to prevent masking nodes or edges with high importance. Must be between 0 and 1.
+        A threshold value to prevent masking unimportant nodes or edges with too high probabilities. Must be between 0 and 1.
     p_rewire : float
         The probability of rewiring an edge. Must be between 0 and 1.
     p_shuffle : float
