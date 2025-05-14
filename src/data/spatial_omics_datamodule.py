@@ -215,6 +215,23 @@ class SpatialOmicsDataModule(LightningDataModule):
             method=self.hparams.graph_method,
             n_neighbors=self.hparams.n_neighbors,
         )
+
+        # rescale STARmap positions to match the other samples in domain123 (median of ~45)
+        if graph.sample_name.startswith("STARmap"):
+            log.info(
+                f"Rescaling STARmap sample {sample_name} to match other samples' neighbor distances."
+            )
+            edge_index = graph.edge_index
+            pos = graph.position
+
+            src, dst = edge_index
+            dists = torch.norm(pos[src] - pos[dst], dim=1)
+            valid_dists = dists[dists > 0]
+            median_dist = valid_dists.median().item()
+
+            scale = 35 / median_dist
+            graph.position *= scale
+
         save_sample(adata, graph, self.hparams.processed_dir, sample_name)
         del adata
         del graph
