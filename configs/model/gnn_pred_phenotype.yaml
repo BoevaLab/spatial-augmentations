@@ -25,7 +25,7 @@ scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
   T_max: 50000
-  eta_min: 1e-5
+  eta_min: 1e-7
 
 compile: false # compile model for faster training with pytorch 2.0
 augmentation_mode: "baseline" # augmetation mode, either baseline or advanced
