@@ -55,8 +55,8 @@ model:
 
   compile: false # compile model for faster training with pytorch 2.0
   augmentation_mode: "advanced" # augmetation mode, either baseline or advanced
-  augmentation_list1: ["DropImportance"] # list of augmentations to apply for first view
-  augmentation_list2: ["DropImportance"] # list of augmentations to apply for second view
+  augmentation_list1: ["DropImportance", "SpatialNoise"] # list of augmentations to apply for first view
+  augmentation_list2: ["DropImportance", "FeatureNoise"] # list of augmentations to apply for second view
   mm: 0.97 # momentum for moving average of target encoder
   warmup_steps: 200 # number of warmup steps
   total_steps: 2997 # total number of training steps
@@ -70,8 +70,8 @@ model:
   p_lambda: 0.2 # hyperparameter for the graph augmentation
   p_rewire: 0. # hyperparameter for the graph augmentation
   p_shuffle: 0. # hyperparameter for the graph augmentation
-  spatial_noise_std: 0. # standard deviation of the spatial noise
-  feature_noise_std: 0. # standard deviation of the feature noise
+  spatial_noise_std: 22.5 # standard deviation of the spatial noise
+  feature_noise_std: 0.03 # standard deviation of the feature noise
   processed_dir: ${paths.data_dir}domain/processed_123/ # directory for processed data
 
 trainer:
