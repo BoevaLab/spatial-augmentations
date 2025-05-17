@@ -154,9 +154,9 @@ class BGRLPhenotypeLitModule(LightningModule):
         # loss function
         if mode == "pretraining":
             self.criterion = self.cosine_similarity_loss
-        elif mode == "finetuning":
+        elif mode == "finetuning" or mode == "evaluation":
             self.criterion = self.binary_cross_entropy_loss
-        elif mode != "evaluation":
+        else:
             raise ValueError(
                 "Invalid mode. Choose either 'pretraining', 'finetuning', or 'evaluation."
             )
