@@ -44,5 +44,8 @@ p_lambda: 0.3 # hyperparameter for the graph augmentation
 p_rewire: 0.1 # hyperparameter for the graph augmentation
 p_shuffle: 0.1 # hyperparameter for the graph augmentation
 spatial_noise_std: 0.01 # standard deviation of the spatial noise augmentation
+feature_noise_std: 0.01 # standard deviation of the feature noise augmentation
+p_add: 0.1 # hyperparameter for the graph augmentation
+k_add: 3 # hyperparameter for the graph augmentation
 processed_dir: ${paths.data_dir}domain/processed/ # directory for processed data
 seed: ${seed} # random seed

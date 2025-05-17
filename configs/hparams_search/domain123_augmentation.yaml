@@ -60,4 +60,6 @@ hydra:
       #model.p_shuffle: interval(0.1, 0.4)
       model.spatial_noise_std: interval(2.0, 30.0)
       model.feature_noise_std: interval(0.05, 1.0)
+      model.p_add: interval(0.05, 0.2)
+      model.k_add: choice(1, 2, 3, 4, 5)
       model.spatial_regularization_strength: interval(0.0, 0.5)

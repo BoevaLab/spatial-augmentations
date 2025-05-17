@@ -63,6 +63,8 @@ class BGRLDomainLitModule(LightningModule):
         p_shuffle: float,
         spatial_noise_std: float,
         feature_noise_std: float,
+        p_add: float,
+        k_add: int,
         processed_dir: str,
         seed: int,
     ) -> None:
@@ -116,6 +118,10 @@ class BGRLDomainLitModule(LightningModule):
             Standard deviation of the Gaussian noise added to the spatial coordinates of nodes.
         feature_noise_std : float
             Standard deviation of the Gaussian noise added to the node features.
+        p_add : float
+            Probability of adding a new edges to a node during the graph augmentation process.
+        k_add : int
+            Number of edges to add for each selected node during the graph augmentation process.
         processed_dir : str
             Directory where processed data is stored. Used during testing to load additional metadata.
         seed : int
@@ -248,6 +254,8 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.p_shuffle,
             self.hparams.spatial_noise_std,
             self.hparams.feature_noise_std,
+            self.hparams.p_add,
+            self.hparams.k_add,
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
@@ -260,6 +268,8 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.p_shuffle,
             self.hparams.spatial_noise_std,
             self.hparams.feature_noise_std,
+            self.hparams.p_add,
+            self.hparams.k_add,
         )
 
         augmented1 = transform1(batch)

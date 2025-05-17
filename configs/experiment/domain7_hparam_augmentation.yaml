@@ -72,6 +72,8 @@ model:
   p_shuffle: 0. # hyperparameter for the graph augmentation
   spatial_noise_std: 0.02 # standard deviation of the spatial noise
   feature_noise_std: 0.18 # standard deviation of the feature noise
+  p_add: 0.1 # hyperparameter for the graph augmentation
+  k_add: 3 # hyperparameter for the graph augmentation
   processed_dir: ${paths.data_dir}domain/processed_7/ # directory for processed data
 
 trainer:

@@ -19,7 +19,6 @@ Functions:
 - get_graph_augmentation: Creates a composed graph augmentation pipeline based on the specified method and parameters.
 """
 
-# TODO: implement long range connection augmentation
 # TODO: cluster-level perturbations like position perturbations only for
 #       some clusters identified by a clustering algorithm like kmeans
 # TODO: implement low-pass filter for features
@@ -30,7 +29,7 @@ from typing import Tuple
 import numpy as np
 import torch
 from torch_geometric.transforms import Compose
-from torch_geometric.utils import coalesce, degree, dropout_edge
+from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
 from torch_sparse import SparseTensor
 
 
@@ -555,6 +554,94 @@ class RewireEdgesFast:
         return f"{self.__class__.__name__}(p_rewire={self.p_rewire})"
 
 
+class RewireEdgesAll:
+    """
+    Rewires edges randomly using all nodes as possible new targets for an edge.
+
+    This transformation randomly rewires edges in the graph with a specified probability `p_rewire`.
+    For each edge selected for rewiring, a new target node is chosen randomly from all nodes.
+
+    Parameters:
+    -----------
+    p_rewire : float
+        The probability of rewiring an edge. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the edge rewiring transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - Reverse edges are updated to maintain consistency in undirected graphs.
+    - The rewiring process ensures that the graph structure remains valid by avoiding self-loops
+      and preserving connectivity within the graph.
+    """
+
+    def __init__(self, p_rewire):
+        assert 0.0 < p_rewire <= 1.0, "Rewiring probability must be between 0 and 1."
+        self.p_rewire = p_rewire
+
+    def __call__(self, data):
+        """
+        Applies the edge rewiring transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing precomputed edges and spatial positions.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with some edges rewired.
+        """
+        # get attributes from the original graph
+        edge_index = data.edge_index
+        edge_weight = data.edge_weight
+        num_nodes = data.num_nodes
+        device = edge_index.device
+
+        # randomly select edges to rewire and new target nodes
+        num_edges = edge_index.size(1)
+        rewire_mask = torch.rand(num_edges, device=device) < self.p_rewire
+        new_targets = torch.randint(0, num_nodes, (rewire_mask.sum(),), device=device)
+
+        # rewire the selected edges (including reverse edges)
+        edge_index = edge_index.clone()
+        edge_weight = edge_weight.clone()
+        edge_index[1, rewire_mask] = new_targets
+        edge_index = torch.cat([edge_index, edge_index[:, rewire_mask].flip(0)], dim=1)
+        edge_weight = torch.cat([edge_weight, edge_weight[rewire_mask]], dim=0)
+
+        # remove self-loops and directed edges created by rewiring
+        edge_index, edge_weight = remove_directed_edges(edge_index, edge_weight)
+        edge_index, edge_weight = coalesce(edge_index, edge_weight, num_nodes=num_nodes)
+        edge_index, edge_weight = remove_self_loops(edge_index, edge_weight)
+
+        # update the new graph
+        data.edge_index = edge_index
+        data.edge_weight = edge_weight
+
+        assert data.is_undirected(), "Graph is not undirected after rewiring!"
+        assert not data.has_self_loops(), "Graph contains self-loops after rewiring!"
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p_rewire={self.p_rewire})"
+
+
 class ShufflePositions:
     """
     Shuffles node positions within a spatial neighborhood.
@@ -629,6 +716,116 @@ class ShufflePositions:
             A string describing the transformation and its parameters.
         """
         return f"{self.__class__.__name__}(p_shuffle={self.p_shuffle})"
+
+
+class AddEdgesByFeatureSimilarity:
+    """
+    Adds edges from randomly selected nodes to other feature-similar nodes
+    they are not already connected to.
+
+    Parameters:
+    -----------
+    p_add : float
+        Probability of each node being selected for edge addition.
+    k : int
+        Number of similar nodes to connect to (per selected node).
+    similarity : str
+        Feature similarity metric: "cosine" or "euclidean".
+    """
+
+    def __init__(self, p_add, k_add, similarity="cosine"):
+        assert 0.0 < p_add <= 1.0, "Adding probability must be between 0 and 1."
+        self.p_add = p_add
+        self.k = k_add
+        assert similarity in {"cosine", "euclidean"}
+        self.similarity = similarity
+
+    def __call__(self, data):
+        """
+        Applies the edge addition transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node positions and edges.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with added edges.
+        """
+        edge_index = data.edge_index
+        edge_weight = data.edge_weight
+        num_nodes = data.num_nodes
+        device = data.edge_index.device
+        x = data.x
+
+        # select candidate nodes randomly
+        selected_mask = torch.rand(num_nodes, device=device) < self.p_add
+        selected = selected_mask.nonzero(as_tuple=True)[0]
+        if selected.numel() == 0:
+            return data
+
+        # build SparseTensor adjacency matrix to exclude already-connected neighbors
+        adj = SparseTensor.from_edge_index(edge_index, sparse_sizes=(num_nodes, num_nodes))
+
+        # compute full similarity between selected nodes and all nodes
+        # (either cosine similarity or euclidean distance converted to similarity)
+        x_sel = x[selected]
+        if self.similarity == "cosine":
+            x_sel = torch.nn.functional.normalize(x_sel, dim=1)
+            x_all = torch.nn.functional.normalize(x, dim=1)
+            sim_matrix = torch.matmul(x_sel, x_all.T)
+        else:
+            x_all_sq = x.pow(2).sum(dim=1, keepdim=True)
+            x_sel_sq = x_sel.pow(2).sum(dim=1, keepdim=True)
+            sim_matrix = -(x_sel_sq - 2 * x_sel @ x.T + x_all_sq.T)
+
+        # create mask for excluding existing neighbors and self
+        row, col, _ = adj.coo()
+        neighbor_mask = torch.zeros((selected.numel(), num_nodes), dtype=torch.bool, device=device)
+        for idx, i in enumerate(selected.tolist()):
+            neighbor_mask[idx, i] = True
+            neighbors = adj[i].coo()[1]
+            neighbor_mask[idx, neighbors] = True
+
+        sim_matrix[neighbor_mask] = -float("inf")
+
+        # get the top-k similar nodes for each selected node
+        topk_sim, topk_indices = torch.topk(sim_matrix, k=min(self.k, num_nodes), dim=1)
+
+        # construct new edges and weights
+        src_nodes = selected.unsqueeze(1).expand_as(topk_indices)
+        dst_nodes = topk_indices
+
+        edge_pairs = torch.stack([src_nodes.flatten(), dst_nodes.flatten()], dim=0)
+        edge_pairs_rev = edge_pairs.flip(0)
+        all_new_edges = torch.cat([edge_pairs, edge_pairs_rev], dim=1)
+
+        new_weights = topk_sim.flatten().repeat(2)
+
+        # add the new edges and weights to the graph
+        data.edge_index = torch.cat([edge_index, all_new_edges], dim=1)
+        data.edge_weight = torch.cat([edge_weight, new_weights], dim=0)
+
+        data.edge_index, data.edge_weight = coalesce(
+            data.edge_index, data.edge_weight, num_nodes=num_nodes
+        )
+
+        assert data.is_undirected(), "Graph is not undirected after adding edges!"
+        assert not data.has_self_loops(), "Graph has self-loops after adding edges!"
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p_add={self.p_add}, k={self.k}, similarity='{self.similarity}')"
 
 
 class SpatialNoise:
@@ -791,6 +988,8 @@ def get_graph_augmentation(
     p_shuffle: float,
     spatial_noise_std: float,
     feature_noise_std: float,
+    p_add: float,
+    k_add: int,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -822,6 +1021,10 @@ def get_graph_augmentation(
         The standard deviation of the Gaussian noise to be added to the node positions.
     feature_noise_std : float
         The standard deviation of the Gaussian noise to be added to the node features.
+    p_add : float
+        Probability of each node being selected for edge addition. Must be between 0 and 1.
+    k_add : int
+        Number of similar nodes to connect to (per selected node).
 
     Returns:
     --------
@@ -870,7 +1073,7 @@ def get_graph_augmentation(
 
         # rewire edges
         if (p_rewire > 0.0) and ("RewireEdges" in augmentation_list):
-            transforms.append(RewireEdges(p_rewire))
+            transforms.append(RewireEdgesAll(p_rewire))
 
         # shuffle positions
         if (p_shuffle > 0.0) and ("ShufflePositions" in augmentation_list):
@@ -883,6 +1086,10 @@ def get_graph_augmentation(
         # feature noise
         if (feature_noise_std > 0.00) and ("FeatureNoise" in augmentation_list):
             transforms.append(FeatureNoise(feature_noise_std))
+
+        # add edges by feature similarity
+        if (p_add > 0.0) and ("AddEdgesByFeatureSimilarity" in augmentation_list):
+            transforms.append(AddEdgesByFeatureSimilarity(p_add, k_add))
 
         # return the composed transformation
         return Compose(transforms)
