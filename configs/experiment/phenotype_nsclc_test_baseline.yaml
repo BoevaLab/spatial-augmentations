@@ -17,3 +17,4 @@ data:
 
 model:
   mode: "evaluation"
+  test_tresh: 0.5

@@ -6,12 +6,12 @@ net:
   _target_: src.models.components.bgrl.BGRL
   encoder:
     _target_: src.models.components.gnn.GNN
-    num_layer: ${pretrain.data.subgraph_size}
+    num_layer: 3
     num_node_type: 30
     num_feat: 76
     emb_dim: 256
     node_embedding_output: "last"
-    drop_ratio: 0.25
+    drop_ratio: 0.32
     gnn_type: "gin"
   projector:
     _target_: src.models.components.bgrl_projector.BGRLProjector
@@ -22,24 +22,25 @@ net:
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.005
-  weight_decay: 1e-4
+  lr: 0.006
+  weight_decay: 0.02
 
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  T_max: 50000
+  T_max: 20000
   eta_min: 1e-7
 
+test_thresh: None # threshold for test set
 compile: false # compile model for faster training with pytorch 2.0
 augmentation_mode: "baseline" # augmetation mode, either baseline or advanced
 augmentation_list1: [] # list of augmentations to apply for the first view (only necessary for advanced mode)
 augmentation_list2: [] # list of augmentations to apply for the second view (only necessary for advanced mode)
-mm: 0.99 # momentum for moving average of target encoder
+mm: 0.97 # momentum for moving average of target encoder
 warmup_steps: 2000 # number of warmup steps
 total_steps: 50000 # total number of training steps
-drop_edge_p1: 0.3 # drop edge probability for first augmentation
-drop_edge_p2: 0.3 # drop edge probability for second augmentation
-drop_feat_p1: 0.3 # drop feature probability for first augmentation
-drop_feat_p2: 0.3 # drop feature probability for second augmentation
+drop_edge_p1: 0.19 # drop edge probability for first augmentation
+drop_edge_p2: 0.33 # drop edge probability for second augmentation
+drop_feat_p1: 0.33 # drop feature probability for first augmentation
+drop_feat_p2: 0.19 # drop feature probability for second augmentation
 seed: ${seed} # random seed

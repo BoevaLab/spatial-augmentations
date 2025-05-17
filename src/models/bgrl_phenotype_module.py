@@ -48,6 +48,8 @@ class BGRLPhenotypeLitModule(LightningModule):
         The optimizer to use for training (e.g., Adam, AdamW).
     scheduler : torch.optim.lr_scheduler
         The learning rate scheduler to use for training (e.g., ReduceLROnPlateau, CosineAnnealingLR).
+    test_thresh : float
+        The threshold for binary classification during testing.
     compile : bool
         Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
     augmentation_mode : str
@@ -82,6 +84,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        test_thresh: float,
         compile: bool,
         augmentation_mode: str,
         augmentation_list1: List[str],
@@ -109,6 +112,8 @@ class BGRLPhenotypeLitModule(LightningModule):
             The optimizer to use for training (e.g., Adam, AdamW).
         scheduler : torch.optim.lr_scheduler
             The learning rate scheduler to use for training (e.g., ReduceLROnPlateau, CosineAnnealingLR).
+        test_thresh : float
+            The threshold for binary classification during testing.
         compile : bool
             Whether to use Torch's `torch.compile` for model compilation (requires PyTorch 2.0+).
         augmentation_mode : str
@@ -438,7 +443,7 @@ class BGRLPhenotypeLitModule(LightningModule):
 
         return loss
 
-    def calculate_metrics(self, logits, labels):
+    def calculate_metrics(self, logits, labels, test=False, best_thresh=None) -> dict:
         """
         Evaluate graphs by computing classification metrics.
 
@@ -456,10 +461,23 @@ class BGRLPhenotypeLitModule(LightningModule):
         """
         # turn logits into probabilities and predictions
         probs = torch.sigmoid(logits)
-        preds = (probs >= 0.5).int()
+
+        if not test:
+            thresholds = torch.linspace(0.0, 1.0, steps=101).to(probs.device)
+            best_f1 = 0.0
+            best_thresh = 0.5
+            for thresh in thresholds:
+                preds = (probs >= thresh).int()
+                f1 = self.val_f1(preds, labels)
+                if f1 > best_f1:
+                    best_f1 = f1.item()
+                    best_thresh = thresh.item()
+
+        preds = (probs >= best_thresh).int()
 
         # compute metrics
         metrics = {
+            "threshold": best_thresh,
             "auroc": self.val_auroc(probs, labels).item(),
             "accuracy": self.val_acc(preds, labels).item(),
             "f1": self.val_f1(preds, labels).item(),
@@ -553,6 +571,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         self.log("val/f1", metrics["f1"], on_epoch=True, prog_bar=True)
         self.log("val/precision", metrics["precision"], on_epoch=True, prog_bar=True)
         self.log("val/recall", metrics["recall"], on_epoch=True, prog_bar=True)
+        self.log("val/threshold", metrics["threshold"], on_epoch=True, prog_bar=True)
 
         # log best F1 score for hparams search
         current_f1 = metrics["f1"]
@@ -628,7 +647,9 @@ class BGRLPhenotypeLitModule(LightningModule):
         y_trues = torch.stack(y_trues)
 
         # compute metrics across all graphs
-        metrics = self.calculate_metrics(y_preds, y_trues)
+        metrics = self.calculate_metrics(
+            y_preds, y_trues, test=True, best_thresh=self.hparams.test_thresh
+        )
 
         # log the results
         self.log("test/loss", self.test_loss, on_epoch=True, prog_bar=True)
@@ -640,6 +661,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         self.log("test/f1", metrics["f1"], on_epoch=True, prog_bar=True)
         self.log("test/precision", metrics["precision"], on_epoch=True, prog_bar=True)
         self.log("test/recall", metrics["recall"], on_epoch=True, prog_bar=True)
+        self.log("test/threshold", metrics["threshold"], on_epoch=True, prog_bar=True)
 
         # clear the outputs for the next test run
         self.test_outputs.clear()
