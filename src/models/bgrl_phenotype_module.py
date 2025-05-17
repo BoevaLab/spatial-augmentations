@@ -72,6 +72,18 @@ class BGRLPhenotypeLitModule(LightningModule):
         Dropout probability for node features in the first augmented view of the graph.
     drop_feat_p2 : float
         Dropout probability for node features in the second augmented view of the graph.
+    mu : float
+        Parameter for the graph augmentation methods.
+    p_lambda : float
+        Parameter for the graph augmentation methods.
+    p_rewire : float
+        Parameter for the graph augmentation methods.
+    feature_noise_std : float
+        Standard deviation for the feature noise added during augmentation.
+    p_add : float
+        Probability of adding new edges during augmentation.
+    k_add : int
+        Number of new edges to add during augmentation.
     seed : int
         Random seed for reproducibility.
     pretrained_model_path : str, optional
@@ -96,6 +108,12 @@ class BGRLPhenotypeLitModule(LightningModule):
         drop_edge_p2: float,
         drop_feat_p1: float,
         drop_feat_p2: float,
+        mu: float,
+        p_lambda: float,
+        p_rewire: float,
+        feature_noise_std: float,
+        p_add: float,
+        k_add: int,
         seed: int,
         ckpt_file: str = None,
     ) -> None:
@@ -136,6 +154,18 @@ class BGRLPhenotypeLitModule(LightningModule):
             Dropout probability for node features in the first augmented view of the graph.
         drop_feat_p2 : float
             Dropout probability for node features in the second augmented view of the graph.
+        mu : float
+            Parameter for the graph augmentation methods.
+        p_lambda : float
+            Parameter for the graph augmentation methods.
+        p_rewire : float
+            Parameter for the graph augmentation methods.
+        feature_noise_std : float
+            Standard deviation for the feature noise added during augmentation.
+        p_add : float
+            Probability of adding new edges during augmentation.
+        k_add : int
+            Number of new edges to add during augmentation.
         seed : int
             Random seed for reproducibility.
         ckpt_file : str, optional
@@ -379,12 +409,24 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.augmentation_list1,
                 self.hparams.drop_edge_p1,
                 self.hparams.drop_feat_p1,
+                self.hparams.mu,
+                self.hparams.p_lambda,
+                self.hparams.p_rewire,
+                self.hparams.feature_noise_std,
+                self.hparams.p_add,
+                self.hparams.k_add,
             )
             transform2 = get_graph_augmentation(
                 self.hparams.augmentation_mode,
                 self.hparams.augmentation_list2,
                 self.hparams.drop_edge_p2,
                 self.hparams.drop_feat_p2,
+                self.hparams.mu,
+                self.hparams.p_lambda,
+                self.hparams.p_rewire,
+                self.hparams.feature_noise_std,
+                self.hparams.p_add,
+                self.hparams.k_add,
             )
 
             augmented1 = transform1(batch)

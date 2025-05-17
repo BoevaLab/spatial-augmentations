@@ -440,8 +440,8 @@ class AddEdgesByCellType:
             for j in chosen.tolist():
                 new_edges.append([i, j])
                 new_edges.append([j, i])
-                new_weights.append([2, 1.0])
-                new_weights.append([2, 1.0])
+                new_weights.append([0, 1.0])
+                new_weights.append([0, 1.0])
 
         if not new_edges:
             return data
