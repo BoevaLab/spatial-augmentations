@@ -10,7 +10,7 @@ defaults:
 
 task_name: "phenotype_nsclc_test_baseline"
 tags: ["phenotype", "nsclc", "test", "baseline"]
-ckpt_path: ???
+ckpt_path: ${paths.log_dir}phenotype_nsclc_train_baseline/runs/2025-05-16_10-49-14/checkpoints/epoch_epoch=3999.ckpt
 
 data:
   mode: "evaluation"
