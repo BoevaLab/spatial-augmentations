@@ -686,23 +686,55 @@ class ShufflePositions:
         Data
             The transformed graph data with shuffled positions.
         """
-        for node in range(data.position.size(0)):
-            # iterate over all nodes and randomly select a node to shuffle its position
-            if torch.rand(1).item() < self.p_shuffle:
-                # get the neighbors of the current node
-                neighbors = data.edge_index[1, data.edge_index[0] == node]
-                if len(neighbors) > 0:
-                    # randomly select a neighbor to swap positions with
-                    neighbor = neighbors[torch.randint(0, len(neighbors), (1,))].item()
+        num_nodes = data.position.size(0)
+        device = data.edge_index.device
+        edge_index = data.edge_index
 
-                    # swap the positions of the current node and the selected neighbor
-                    data.position[[node, neighbor]] = data.position[[neighbor, node]]
+        # randomly select nodes to shuffle
+        shuffle_mask = torch.rand(num_nodes, device=device) < self.p_shuffle
+        nodes_to_shuffle = shuffle_mask.nonzero(as_tuple=True)[0]
 
-                    # update the edge index to reflect the swapped positions
-                    mask_a = data.edge_index == node
-                    mask_b = data.edge_index == neighbor
-                    data.edge_index[mask_a] = neighbor
-                    data.edge_index[mask_b] = node
+        if nodes_to_shuffle.numel() == 0:
+            return data
+
+        # build neighbor dictionary for quick access
+        from collections import defaultdict
+
+        neighbor_dict = defaultdict(list)
+        for src, tgt in edge_index.t().tolist():
+            neighbor_dict[src].append(tgt)
+
+        # store swaps to apply later
+        swaps = []
+        for node in nodes_to_shuffle.tolist():
+            neighbors = neighbor_dict.get(node, [])
+            if neighbors:
+                neighbor = neighbors[torch.randint(len(neighbors), (1,)).item()]
+                swaps.append((node, neighbor))
+
+        if not swaps:
+            return data
+
+        # create mapping from old to new IDs
+        swap_map = torch.arange(num_nodes, device=device)
+        for a, b in swaps:
+            tmp = swap_map[a].item()
+            swap_map[a] = swap_map[b]
+            swap_map[b] = tmp
+
+        # apply swaps to the edge_index
+        data.edge_index = swap_map[data.edge_index]
+
+        # apply the same swaps to the positions
+        pos = data.position.clone()
+        for a, b in swaps:
+            tmp = pos[a].clone()
+            pos[a] = pos[b]
+            pos[b] = tmp
+        data.position = pos
+
+        assert data.is_undirected(), "Graph is not undirected after shuffling!"
+        assert not data.has_self_loops(), "Graph has self-loops after shuffling!"
 
         return data
 
