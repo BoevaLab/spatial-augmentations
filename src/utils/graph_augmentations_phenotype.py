@@ -536,7 +536,6 @@ class ShufflePositions:
         # create mapping from old to new IDs
         swap_map = torch.arange(num_nodes, device=device)
         for a, b in swaps:
-            print(f"Swapping {a} with {b}")
             tmp = swap_map[a].item()
             swap_map[a] = swap_map[b]
             swap_map[b] = tmp
