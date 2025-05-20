@@ -460,6 +460,106 @@ class AddEdgesByCellType:
         return f"{self.__class__.__name__}(p_add={self.p_add}, k={self.k})"
 
 
+class ShufflePositions:
+    """
+    Shuffles nodes within a spatial neighborhood.
+
+    This transformation randomly shuffles nodes with a specified probability `p_shuffle`.
+    For each node selected for shuffling, its edges are swapped with the edges of one of its neighbors.
+
+    Parameters:
+    -----------
+    p_shuffle : float
+        The probability of shuffling a node's position. Must be between 0 and 1.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the position shuffling transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation ensures that the graph structure remains valid by only swapping positions
+      between nodes that are connected by an edge.
+    - The edge index is updated to reflect the swapped positions, maintaining consistency in the graph.
+    """
+
+    def __init__(self, p_shuffle):
+        assert 0.0 < p_shuffle <= 1.0, "Shuffling probability must be between 0 and 1."
+        self.p_shuffle = p_shuffle
+
+    def __call__(self, data):
+        """
+        Applies the position shuffling transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node positions and edges.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with shuffled positions.
+        """
+        num_nodes = data.x.size(0)
+        device = data.edge_index.device
+        edge_index = data.edge_index
+
+        # randomly select nodes to shuffle
+        shuffle_mask = torch.rand(num_nodes, device=device) < self.p_shuffle
+        nodes_to_shuffle = shuffle_mask.nonzero(as_tuple=True)[0]
+
+        if nodes_to_shuffle.numel() == 0:
+            return data
+
+        # build neighbor dictionary for quick access
+        from collections import defaultdict
+
+        neighbor_dict = defaultdict(list)
+        for src, tgt in edge_index.t().tolist():
+            neighbor_dict[src].append(tgt)
+
+        # store swaps to apply later
+        swaps = []
+        for node in nodes_to_shuffle.tolist():
+            neighbors = neighbor_dict.get(node, [])
+            if neighbors:
+                neighbor = neighbors[torch.randint(len(neighbors), (1,)).item()]
+                swaps.append((node, neighbor))
+
+        if not swaps:
+            return data
+
+        # create mapping from old to new IDs
+        swap_map = torch.arange(num_nodes, device=device)
+        for a, b in swaps:
+            print(f"Swapping {a} with {b}")
+            tmp = swap_map[a].item()
+            swap_map[a] = swap_map[b]
+            swap_map[b] = tmp
+
+        # apply swaps to the edge_index
+        data.edge_index = swap_map[data.edge_index]
+
+        assert data.is_undirected(), "Graph is not undirected after shuffling!"
+
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p_shuffle={self.p_shuffle})"
+
+
 class FeatureNoise:
     """
     Adds Gaussian noise to node features in a graph.
@@ -541,6 +641,7 @@ def get_graph_augmentation(
     feature_noise_std: float,
     p_add: float,
     k_add: int,
+    p_shuffle: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -572,6 +673,8 @@ def get_graph_augmentation(
         Probability of each node being selected for edge addition. Must be between 0 and 1.
     k_add : int
         Number of similar nodes to connect to (per selected node).
+    p_shuffle : float
+        The probability of shuffling a node's position. Must be between 0 and 1.
 
     Returns:
     --------
@@ -629,6 +732,10 @@ def get_graph_augmentation(
         # add edges by feature similarity
         if (p_add > 0.0) and ("AddEdgesByCellType" in augmentation_list):
             transforms.append(AddEdgesByCellType(p_add, k_add))
+
+        # shuffle positions
+        if (p_rewire > 0.0) and ("ShufflePositions" in augmentation_list):
+            transforms.append(ShufflePositions(p_shuffle))
 
         # return the composed transformation
         return Compose(transforms)

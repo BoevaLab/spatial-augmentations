@@ -45,5 +45,6 @@ p_rewire: 0.
 feature_noise_std: 0.
 p_add: 0.
 k_add: 0
+p_shuffle: 0.
 seed: ${seed} # random seed
 ckpt_file: null # path to the checkpoint file for pretraining

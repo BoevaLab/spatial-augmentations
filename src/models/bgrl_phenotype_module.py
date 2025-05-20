@@ -84,6 +84,8 @@ class BGRLPhenotypeLitModule(LightningModule):
         Probability of adding new edges during augmentation.
     k_add : int
         Number of new edges to add during augmentation.
+    p_shuffle : float
+        Probability of shuffling node positions during augmentation.
     seed : int
         Random seed for reproducibility.
     pretrained_model_path : str, optional
@@ -114,6 +116,7 @@ class BGRLPhenotypeLitModule(LightningModule):
         feature_noise_std: float,
         p_add: float,
         k_add: int,
+        p_shuffle: float,
         seed: int,
         ckpt_file: str = None,
     ) -> None:
@@ -166,6 +169,8 @@ class BGRLPhenotypeLitModule(LightningModule):
             Probability of adding new edges during augmentation.
         k_add : int
             Number of new edges to add during augmentation.
+        p_shuffle : float
+            Probability of shuffling node positions during augmentation.
         seed : int
             Random seed for reproducibility.
         ckpt_file : str, optional
@@ -415,6 +420,7 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.feature_noise_std,
                 self.hparams.p_add,
                 self.hparams.k_add,
+                self.hparams.p_shuffle,
             )
             transform2 = get_graph_augmentation(
                 self.hparams.augmentation_mode,
@@ -427,6 +433,7 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.feature_noise_std,
                 self.hparams.p_add,
                 self.hparams.k_add,
+                self.hparams.p_shuffle,
             )
 
             augmented1 = transform1(batch)
