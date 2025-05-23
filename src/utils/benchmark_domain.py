@@ -1,6 +1,7 @@
 import time
 from copy import deepcopy
 
+import numpy as np
 import pandas as pd
 import rootutils
 import torch
@@ -27,6 +28,10 @@ num_neighbors = 10
 num_classes = 10
 num_runs = 3
 seed = 44
+
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 augmentations = {
     "DropFeatures": DropFeatures(p=0.2),
@@ -116,6 +121,7 @@ for size in tqdm(graph_sizes, desc="Graph sizes"):
             {
                 "augmentation": name,
                 "num_nodes": size,
+                "num_edges": data.num_edges,
                 "avg_time_s": sum(times) / len(times),
                 "max_memory_mb": max(memory_usages),
             }
