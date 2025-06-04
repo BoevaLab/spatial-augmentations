@@ -43,11 +43,11 @@ drop_edge_p1: 0. # drop edge probability for first augmentation
 drop_edge_p2: 0. # drop edge probability for second augmentation
 drop_feat_p1: 0. # drop feature probability for first augmentation
 drop_feat_p2: 0. # drop feature probability for second augmentation
-mu: 0.
-p_lambda: 0.
-p_rewire: 0.
-feature_noise_std: 0.
-p_add: 0.
-k_add: 0
-p_shuffle: 0.
-seed: ${seed} # random seed
+mu: 0. # hyperparameter for DropImportance
+p_lambda: 0. # hyperparameter for DropImportance
+p_rewire: 0. # rewiring probability for the graph augmentation
+feature_noise_std: 0. # standard deviation of the feature noise augmentation
+p_add: 0. # probability of adding new edges for the graph augmentation
+k_add: 0 # number of new edges to add for the graph augmentation
+p_shuffle: 0. # probability of shuffling nodes for the graph augmentation
+seed: ${seed} # random seed for reproducibility

@@ -1,3 +1,0 @@
-#!/bin/bash
-
-srun --job-name interactive --cpus-per-task 1 --mem 64G --time 01:00:00 --pty bash

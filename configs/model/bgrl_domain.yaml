@@ -33,19 +33,19 @@ augmentation_list2: [] # list of augmentations to apply for the second view (onl
 mm: 0.99 # momentum for moving average of target encoder
 warmup_steps: 100 # number of warmup steps
 total_steps: 2000 # total number of training steps
-spatial_regularization_strength: 0.0 # hyperparameter for the spatial regularization
+spatial_regularization_strength: 0. # hyperparameter for the spatial regularization
 node_subset_sz: 5000 # number of nodes to sample for accelerated spatial regularization
-drop_edge_p1: 0.3 # drop edge probability for first augmentation
-drop_edge_p2: 0.3 # drop edge probability for second augmentation
-drop_feat_p1: 0.3 # drop feature probability for first augmentation
-drop_feat_p2: 0.3 # drop feature probability for second augmentation
-mu: 0.3 # hyperparameter for the graph augmentation
-p_lambda: 0.3 # hyperparameter for the graph augmentation
-p_rewire: 0.1 # hyperparameter for the graph augmentation
-p_shuffle: 0.1 # hyperparameter for the graph augmentation
-spatial_noise_std: 0.01 # standard deviation of the spatial noise augmentation
-feature_noise_std: 0.01 # standard deviation of the feature noise augmentation
-p_add: 0.1 # hyperparameter for the graph augmentation
-k_add: 3 # hyperparameter for the graph augmentation
+drop_edge_p1: 0. # drop edge probability for first augmentation
+drop_edge_p2: 0. # drop edge probability for second augmentation
+drop_feat_p1: 0. # drop feature probability for first augmentation
+drop_feat_p2: 0. # drop feature probability for second augmentation
+mu: 0. # hyperparameter for DropImportance
+p_lambda: 0. # hyperparameter for DropImportance
+p_rewire: 0. # rewiring probability for the graph augmentation
+p_shuffle: 0. # probability of shuffling nodes for the graph augmentation
+spatial_noise_std: 0. # standard deviation of the spatial noise augmentation
+feature_noise_std: 0. # standard deviation of the feature noise augmentation
+p_add: 0. # probability of adding new edges for the graph augmentation
+k_add: 0 # number of new edges to add for the graph augmentation
 processed_dir: ${paths.data_dir}domain/processed/ # directory for processed data
-seed: ${seed} # random seed
+seed: ${seed} # random seed for reproducibility

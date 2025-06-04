@@ -1,16 +1,16 @@
 _target_: src.data.spatial_omics_datamodule.SpatialOmicsDataModule
-data_dir: ${paths.data_dir}domain/raw/
-processed_dir: ${paths.data_dir}domain/processed/
-batch_size: 1
-num_workers: 0
-pin_memory: False
-min_cells: 3
-min_genes: 3
-augmentation_mode: "baseline"
-lambda_param: 0.1
-sigma_param: 0.1
-n_pca_components: 50
-graph_method: "knn"
-n_neighbors: 21.75
-redo_preprocess: False
-seed: ${seed}
+data_dir: ${paths.data_dir}domain/raw/ # raw data directory
+processed_dir: ${paths.data_dir}domain/processed/ # processed data directory
+batch_size: 1 # batch size for training
+num_workers: 0 # number of workers for data loading
+pin_memory: False # whether to use pin_memory for faster data transfer to GPU
+min_cells: 3 # minimum number of cells per gene for filtering
+min_genes: 3 # minimum number of genes per cell for filtering
+augmentation_mode: "baseline" # augmentation mode for data preprocessing
+lambda_param: 0. # lambda parameter for pseudo batch effect
+sigma_param: 0. # sigma parameter for pseudo batch effect
+n_pca_components: 50 # number of PCA components to use as node features
+graph_method: "knn" # method to construct the graph
+n_neighbors: 10 # number of neighbors for KNN graph construction
+redo_preprocess: False # whether to redo preprocessing
+seed: ${seed} # random seed for reproducibility
