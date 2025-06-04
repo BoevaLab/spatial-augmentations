@@ -1,5 +1,8 @@
 # @package _global_
 
+# to execute this experiment run:
+# python src/eval_phenotype.py experiment=phenotype_nsclc_test_augmentation
+
 defaults:
   - override /data: cellular_graph
   - override /model: gnn_pred_phenotype

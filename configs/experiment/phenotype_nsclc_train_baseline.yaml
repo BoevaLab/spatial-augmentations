@@ -1,5 +1,8 @@
 # @package _global_
 
+# to execute this experiment run:
+# python src/train_phenotype.py experiment=phenotype_nsclc_train_baseline
+
 defaults:
   - override /data@finetune.data: cellular_graph
   - override /model@finetune.model: gnn_pred_phenotype

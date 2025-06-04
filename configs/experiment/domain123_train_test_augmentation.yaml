@@ -1,7 +1,7 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=domain123_train_test_augmentation
+# python src/train_domain.py experiment=domain123_train_test_augmentation
 
 defaults:
   - override /data: spatial_omics
@@ -53,31 +53,31 @@ model:
     T_max: 2997
     eta_min: 1e-7
 
-  compile: false # compile model for faster training with pytorch 2.0
-  augmentation_mode: "advanced" # augmetation mode, either baseline or advanced
-  augmentation_list1: ["DropImportance", "SpatialNoise"] # list of augmentations to apply for first view
-  augmentation_list2: ["DropImportance", "FeatureNoise"] # list of augmentations to apply for second view
-  mm: 0.94 # momentum for moving average of target encoder
-  warmup_steps: 300 # number of warmup steps
-  total_steps: 2997 # total number of training steps
-  spatial_regularization_strength: 0.0004 # hyperparameter for the spatial regularization
-  node_subset_sz: 5000 # number of nodes to sample for accelerated spatial regularization
-  drop_edge_p1: 0. # drop edge probability for first augmentation
-  drop_edge_p2: 0. # drop edge probability for second augmentation
-  drop_feat_p1: 0. # drop feature probability for first augmentation
-  drop_feat_p2: 0. # drop feature probability for second augmentation
-  mu: 0.21 # hyperparameter for the graph augmentation
-  p_lambda: 0.44 # hyperparameter for the graph augmentation
-  p_rewire: 0. # hyperparameter for the graph augmentation
-  p_shuffle: 0. # hyperparameter for the graph augmentation
-  spatial_noise_std: 19.70 # standard deviation of the spatial noise
-  feature_noise_std: 0.62 # standard deviation of the feature noise
-  p_add: 0.1 # hyperparameter for the graph augmentation
-  k_add: 3 # hyperparameter for the graph augmentation
-  processed_dir: ${paths.data_dir}domain/processed_123/ # directory for processed data
+  compile: false
+  augmentation_mode: "advanced"
+  augmentation_list1: ["DropImportance", "SpatialNoise"]
+  augmentation_list2: ["DropImportance", "FeatureNoise"]
+  mm: 0.94
+  warmup_steps: 300
+  total_steps: 2997
+  spatial_regularization_strength: 0.0004
+  node_subset_sz: 5000
+  drop_edge_p1: 0.
+  drop_edge_p2: 0.
+  drop_feat_p1: 0.
+  drop_feat_p2: 0.
+  mu: 0.21
+  p_lambda: 0.44
+  p_rewire: 0.
+  p_shuffle: 0.
+  spatial_noise_std: 19.70
+  feature_noise_std: 0.62
+  p_add: 0.1
+  k_add: 3
+  processed_dir: ${paths.data_dir}domain/processed_123/
 
 trainer:
-  min_epochs: 1 # prevents early stopping
+  min_epochs: 1
   max_epochs: 999
   log_every_n_steps: 2
   check_val_every_n_epoch: 9999
