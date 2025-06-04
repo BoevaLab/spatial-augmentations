@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - override /data: cellular_graph
+  - override /model: gnn_pred_phenotype
+  - override /trainer: gpu
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+task_name: "phenotype_nsclc_test_augmentation"
+tags: ["phenotype", "nsclc", "test", "augmentation"]
+ckpt_path: ${paths.log_dir}phenotype_nsclc_hparam_augmentation/multiruns/2025-05-20_13-08-28/1/checkpoints/epoch_epoch=5999.ckpt
+
+data:
+  mode: "evaluation"
+
+model:
+  mode: "evaluation"
+  test_thresh: 0.47

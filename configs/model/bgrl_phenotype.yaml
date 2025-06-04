@@ -39,15 +39,15 @@ augmentation_list2: [] # list of augmentations to apply for the second view (onl
 mm: 0.97 # momentum for moving average of target encoder
 warmup_steps: 2000 # number of warmup steps
 total_steps: 50000 # total number of training steps
-drop_edge_p1: 0.19 # drop edge probability for first augmentation
-drop_edge_p2: 0.33 # drop edge probability for second augmentation
-drop_feat_p1: 0.33 # drop feature probability for first augmentation
-drop_feat_p2: 0.19 # drop feature probability for second augmentation
-mu: 0.2
-p_lambda: 0.5
-p_rewire: 0.2
-feature_noise_std: 0.3
-p_add: 0.1
-k_add: 3
-p_shuffle: 0.1
+drop_edge_p1: 0. # drop edge probability for first augmentation
+drop_edge_p2: 0. # drop edge probability for second augmentation
+drop_feat_p1: 0. # drop feature probability for first augmentation
+drop_feat_p2: 0. # drop feature probability for second augmentation
+mu: 0.
+p_lambda: 0.
+p_rewire: 0.
+feature_noise_std: 0.
+p_add: 0.
+k_add: 0
+p_shuffle: 0.
 seed: ${seed} # random seed
