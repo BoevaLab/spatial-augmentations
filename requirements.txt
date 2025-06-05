@@ -238,7 +238,7 @@ torch_scatter @ file:///cluster/home/mtarnow/torch_scatter-2.1.2%2Bpt25cu121-cp3
 torch_sparse @ file:///cluster/home/mtarnow/torch_sparse-0.6.18%2Bpt25cu124-cp39-cp39-linux_x86_64.whl#sha256=46c8bc4ff424c6477fdd84593422a7897d7ebe27d1679943fa70f243524a4e18
 torchaudio==2.5.0
 torchmetrics==1.7.0
-torchvision==0.20.0
+torchvision==0.22.1
 tornado==6.4.2
 tqdm==4.67.1
 traitlets==5.14.3
