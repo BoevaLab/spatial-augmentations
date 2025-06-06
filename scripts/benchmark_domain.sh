@@ -12,4 +12,4 @@
 source "$HOME/.bashrc"
 conda activate augmentation
 
-srun python src/utils/benchmark_domain.py
+srun python src/benchmark_domain.py
