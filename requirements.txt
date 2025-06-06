@@ -134,7 +134,7 @@ numba==0.60.0
 numcodecs==0.12.1
 numpy==2.0.2
 nvidia-cublas-cu12==12.4.5.8
-nvidia-cuda-cupti-cu12==12.4.127
+nvidia-cuda-cupti-cu12==12.9.79
 nvidia-cuda-nvrtc-cu12==12.4.127
 nvidia-cuda-runtime-cu12==12.4.127
 nvidia-cudnn-cu12==9.1.0.70
