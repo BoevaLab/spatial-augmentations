@@ -54,7 +54,7 @@ Datasets are not included in this repository due to their size. Raw datasets can
 | **Domain123** | Domain Identification | Datasets 1, 2, and 3 from [Schaub et al. (2025)](https://academic.oup.com/bioinformatics/article/41/1/btaf005/7945104): mouse brain spatial transcriptomics datasets (MERFISH, STARmap, BaristaSeq) |
 | **Domain4**   | Domain Identification | Datasets 4 from [Schaub et al. (2025)](https://academic.oup.com/bioinformatics/article/41/1/btaf005/7945104): mouse brain spatial transcriptomics dataset (Xenium)                                  |
 | **Domain7**   | Domain Identification | Dataset 7 from [Schaub et al. (2025)](https://academic.oup.com/bioinformatics/article/41/1/btaf005/7945104): mouse brain spatial transcriptomics dataset (MERFISH)                                  |
-| **NSCLC**     | Phenotype Prediction  | non-small cell lung cancer (NSCLC) spatial proteomics dataset (IMC) from [Cords et al. 2024](https://example.org)                                                                                   |
+| **NSCLC**     | Phenotype Prediction  | non-small cell lung cancer (NSCLC) spatial proteomics dataset (IMC) from [Cords et al. 2024](<https://www.cell.com/cancer-cell/fulltext/S1535-6108(23)00449-X>)                                     |
 
 ## Installation
 
