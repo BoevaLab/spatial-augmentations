@@ -23,6 +23,7 @@ Functions:
 #       some clusters identified by a clustering algorithm like kmeans
 # TODO: implement low-pass filter for features
 
+from collections import defaultdict
 from copy import deepcopy
 from typing import Tuple
 
@@ -30,8 +31,8 @@ import numpy as np
 import torch
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
-from torch_sparse import SparseTensor
 from torch_scatter import scatter_add
+from torch_sparse import SparseTensor
 
 
 def remove_directed_edges(
@@ -1083,6 +1084,91 @@ class SmoothFeatures:
     def __repr__(self):
         return f"{self.__class__.__name__}(smooth_strength={self.smooth_strength})"
 
+
+class Apoptosis:
+    """
+    Graph apoptosis: randomly drop nodes with probability p and rewire dangling edges
+    to *all* surviving neighbors of the dropped node, avoiding self-loops and existing connections.
+    """
+    def __init__(self, apoptosis_p: float):
+        if not 0.0 <= apoptosis_p <= 1.0:
+            raise ValueError(f"apoptosis_p must be between 0 and 1, got {apoptosis_p}")
+        self.p = apoptosis_p
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'edge_index'):
+            raise AttributeError("Input data must have 'edge_index'")
+        edge_index = data.edge_index
+        num_nodes = data.num_nodes
+        device = edge_index.device
+
+        # 1) Determine survivors
+        survive = torch.rand(num_nodes, device=device) > self.p
+        survivors = survive.nonzero(as_tuple=False).view(-1)
+
+        # 2) Build undirected adjacency as CSR for fast neighbor lookup
+        row = torch.cat([edge_index[0], edge_index[1]], dim=0)
+        col = torch.cat([edge_index[1], edge_index[0]], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+
+        src, dst = edge_index
+
+        # 3) Keep edges where both endpoints survive
+        mask_keep = survive[src] & survive[dst]
+        kept = edge_index[:, mask_keep]
+
+        new_edges = [kept]
+
+        # 4) Rewire dangling edges to *all* valid surviving neighbors
+        def rewire_all(out_idx, in_idx):
+            mask = survive[out_idx] & ~survive[in_idx]
+            idx = mask.nonzero(as_tuple=False).view(-1)
+            if idx.numel() == 0:
+                return None
+            u = out_idx[idx]
+            v = in_idx[idx]
+            rewired = []
+            for uu, vv in zip(u.tolist(), v.tolist()):
+                nei = adj[vv].storage.col()  # neighbors of dropped node
+                cand = nei[survive[nei]]
+                forb = adj[uu].storage.col()  # existing neighbors of surviving endpoint
+                valid = cand[(cand != uu) & (~torch.isin(cand, forb))]
+                if valid.numel() > 0:
+                    # connect to all valid neighbors
+                    for w in valid.tolist():
+                        rewired.append((uu, w))
+            if not rewired:
+                return None
+            return torch.tensor(rewired, dtype=torch.long, device=device).t()
+
+        # src survives, dst dies
+        e1 = rewire_all(src, dst)
+        if e1 is not None:
+            new_edges.append(e1)
+        # dst survives, src dies (flip to maintain correct orientation)
+        e2 = rewire_all(dst, src)
+        if e2 is not None:
+            new_edges.append(e2.flip(0))
+
+        # 5) Combine and dedupe
+        combined = torch.cat(new_edges, dim=1)
+        unique = torch.unique(combined.t(), dim=0).t()
+
+        # 6) Remap node indices to compact range
+        new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
+        new_idx[survivors] = torch.arange(survivors.size(0), device=device)
+        data.edge_index = new_idx[unique]
+
+        # 7) Subset features and update num_nodes
+        if hasattr(data, 'x') and data.x is not None:
+            data.x = data.x[survive]
+        data.num_nodes = survivors.size(0)
+
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(apoptosis_p={self.p})"
+
 def get_graph_augmentation(
     augmentation_mode: str,
     augmentation_list: list[str],
@@ -1201,6 +1287,10 @@ def get_graph_augmentation(
         # smooth features
         if (smooth_strength > 0.0) and ("SmoothFeatures" in augmentation_list):
             transforms.append(SmoothFeatures(smooth_strength))
+
+        # apoptosis
+        if (apoptosis_p > 0.0) and ("Apoptosis" in augmentation_list):
+            transforms.append(Apoptosis(apoptosis_p))
 
         # return the composed transformation
         return Compose(transforms)
