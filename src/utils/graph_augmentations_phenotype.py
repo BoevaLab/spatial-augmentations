@@ -746,6 +746,110 @@ class Apoptosis:
         return f"{self.__class__.__name__}(apoptosis_p={self.p})"
 
 
+class Mitosis:
+    """
+    Graph mitosis: randomly select nodes with probability p, and for each selected node:
+      - keep the original as one daughter, create a new daughter node
+      - connect the two daughters by an edge with weight = average outgoing-edge weight / 2
+      - both daughters inherit all original edges to neighbors, copying weights
+      - features (x) of the daughter are exact copies of the original node's features
+    """
+    def __init__(self, mitosis_p: float):
+        if not 0.0 <= mitosis_p <= 1.0:
+            raise ValueError(f"mitosis_p must be between 0 and 1, got {mitosis_p}")
+        self.p = mitosis_p
+
+    def __call__(self, data: Data) -> Data:
+        # Ensure graph has edge_index, x
+        if not hasattr(data, 'edge_index') or not hasattr(data, 'x'):
+            raise AttributeError("Data must have 'edge_index' and 'x' attributes")
+
+        edge_index = data.edge_index
+        x = data.x
+        num_nodes, num_feats = x.size()
+        device = x.device
+
+        # Handle edge weights
+        has_weight = hasattr(data, 'edge_weight') and data.edge_weight is not None
+        edge_weight = data.edge_weight if has_weight else None
+        src, dst = edge_index
+
+        # 1) Select nodes to split
+        mask = torch.rand(num_nodes, device=device) < self.p
+        to_split = mask.nonzero(as_tuple=False).view(-1)
+        k = to_split.numel()
+        if k == 0:
+            return data
+
+        # 2) Build undirected adjacency in CSR for neighbor lookup
+        row = torch.cat([src, dst], dim=0)
+        col = torch.cat([dst, src], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+
+        # 3) Clone features without noise
+        orig_feats = x[to_split]            # [k, F]
+        new_feats = orig_feats.clone()      # exact copy
+        x_out = torch.cat([x, new_feats], dim=0)
+
+        # 4) Collect edges and weights
+        edge_list = [edge_index]
+        weight_list = [edge_weight] if has_weight else []
+        new_edges = []
+        new_weights = [] if has_weight else None
+
+        for idx, u in enumerate(to_split.tolist()):
+            clone_id = num_nodes + idx
+            # Daughter-original edge weight
+            if has_weight:
+                out_mask = src == u
+                w_out = edge_weight[out_mask]
+                avg_out = w_out.mean() if w_out.numel() > 0 else torch.tensor(0., device=device)
+                w_self = avg_out / 2
+            # Connect the two daughters
+            new_edges += [(u, clone_id), (clone_id, u)]
+            if has_weight:
+                new_weights += [w_self, w_self]
+            # Inherit original neighbors
+            nbrs = adj[u].storage.col().tolist()
+            for v in nbrs:
+                # original u-v weight
+                if has_weight:
+                    mask_uv = ((src == u) & (dst == v)) | ((src == v) & (dst == u))
+                    idx_uv = mask_uv.nonzero(as_tuple=False)[0]
+                    w_uv = edge_weight[idx_uv]
+                # add undirected inheritance edges
+                new_edges += [(u, v), (v, u), (clone_id, v), (v, clone_id)]
+                if has_weight:
+                    new_weights += [w_uv, w_uv, w_uv, w_uv]
+
+        if new_edges:
+            ne = torch.tensor(new_edges, dtype=torch.long, device=device).t()
+            edge_list.append(ne)
+            if has_weight:
+                wn = torch.tensor(new_weights, dtype=edge_weight.dtype, device=device)
+                weight_list.append(wn)
+
+        # 5) Combine and dedupe; average weights if duplicates
+        combined = torch.cat(edge_list, dim=1)
+        if has_weight:
+            combined_w = torch.cat(weight_list, dim=0)
+        unique_pairs, inv = torch.unique(combined.t(), return_inverse=True, dim=0)
+        unique_edges = unique_pairs.t()
+        if has_weight:
+            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_w.dtype, device=device)
+            sum_w.scatter_add_(0, inv, combined_w)
+            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
+            data.edge_weight = sum_w / counts
+
+        # 6) Finalize
+        data.edge_index = unique_edges
+        data.x = x_out
+        data.num_nodes = num_nodes + k
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(mitosis_p={self.p})"
+
 
 def get_graph_augmentation(
     augmentation_mode: str,
@@ -759,6 +863,8 @@ def get_graph_augmentation(
     p_add: float,
     k_add: int,
     p_shuffle: float,
+    apoptosis_p: float,
+    mitosis_p: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -857,6 +963,10 @@ def get_graph_augmentation(
         # apoptosis
         if (apoptosis_p > 0.0) and ("Apoptosis" in augmentation_list):
             transforms.append(Apoptosis(apoptosis_p))
+
+        # mitosis
+        if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
+            transforms.append(Mitosis(mitosis_p, feature_noise_std))
 
         # return the composed transformation
         return Compose(transforms)
