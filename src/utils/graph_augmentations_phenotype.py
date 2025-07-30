@@ -629,6 +629,124 @@ class FeatureNoise:
         return f"{self.__class__.__name__}(feature_noise_std={self.noise_std}, feature_index={self.feature_index})"
 
 
+class Apoptosis:
+    """
+    Graph apoptosis with weighted edges: randomly drop nodes and rewire dangling edges
+    to *all* surviving neighbors of the dropped node, avoiding self-loops and existing connections.
+    We propagate original edge weights to the new edges and, when duplicates occur,
+    average the weights of all instances.
+    """
+    def __init__(self, apoptosis_p: float):
+        if not 0.0 <= apoptosis_p <= 1.0:
+            raise ValueError(f"apoptosis_p must be between 0 and 1, got {apoptosis_p}")
+        self.p = apoptosis_p
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'edge_index'):
+            raise AttributeError("Input data must have 'edge_index'")
+        edge_index = data.edge_index
+        num_nodes = data.num_nodes
+        device = edge_index.device
+
+        # optional original weights
+        has_weight = hasattr(data, 'edge_attr') and data.edge_attr is not None
+        edge_attr = data.edge_attr if has_weight else None
+
+        # 1) Determine survivors
+        survive = torch.rand(num_nodes, device=device) > self.p
+        survivors = survive.nonzero(as_tuple=False).view(-1)
+
+        # 2) Build undirected CSR adjacency
+        row = torch.cat([edge_index[0], edge_index[1]], dim=0)
+        col = torch.cat([edge_index[1], edge_index[0]], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+
+        src, dst = edge_index
+
+        # 3) Keep surviving-surviving edges
+        mask_keep = survive[src] & survive[dst]
+        kept_edges = edge_index[:, mask_keep]
+        kept_weights = edge_attr[mask_keep] if has_weight else None
+
+        edge_list = [kept_edges]
+        weight_list = [kept_weights] if has_weight else []
+
+        # 4) Rewire dangling edges to all valid survivors
+        def rewire_all(out_idx, in_idx, mask, weights):
+            idx = mask.nonzero(as_tuple=False).view(-1)
+            if idx.numel() == 0:
+                return None, None
+            u = out_idx[idx]; v = in_idx[idx]
+            w = weights[idx] if weights is not None else None
+            rewired = []
+            rew_w = [] if w is not None else None
+            for i, (uu, vv) in enumerate(zip(u.tolist(), v.tolist())):
+                weight_uv = w[i] if w is not None else None
+                neighbors = adj[vv].storage.col()
+                cand = neighbors[survive[neighbors]]
+                forb = adj[uu].storage.col()
+                valid = cand[(cand != uu) & (~torch.isin(cand, forb))]
+                if valid.numel() > 0:
+                    for nbr in valid.tolist():
+                        rewired.append((uu, nbr))
+                        if weight_uv is not None:
+                            rew_w.append(weight_uv)
+            edges = torch.tensor(rewired, dtype=torch.long, device=device).t() if rewired else None
+            weights_out = torch.tensor(rew_w, dtype=edge_attr.dtype, device=device) if w is not None and rew_w else None
+            return edges, weights_out
+
+        # src survives, dst died
+        mask1 = survive[src] & ~survive[dst]
+        e1, w1 = rewire_all(src, dst, mask1, edge_attr if has_weight else None)
+        if e1 is not None:
+            edge_list.append(e1)
+            if has_weight and w1 is not None:
+                weight_list.append(w1)
+
+        # dst survives, src died — flip orientation
+        mask2 = ~survive[src] & survive[dst]
+        e2, w2 = rewire_all(dst, src, mask2, edge_attr if has_weight else None)
+        if e2 is not None:
+            edge_list.append(e2.flip(0))
+            if has_weight and w2 is not None:
+                weight_list.append(w2)
+
+        # 5) Combine and dedupe; average weights on duplicates
+        combined_edges = torch.cat(edge_list, dim=1)
+        if has_weight:
+            combined_weights = torch.cat(weight_list, dim=0)
+
+        # find unique edge pairs and map back
+        unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
+        unique_edges = unique_pairs.t()
+
+        if has_weight:
+            # sum weights per unique edge
+            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_weights.dtype, device=device)
+            sum_w.scatter_add_(0, inv, combined_weights)
+            # count occurrences per unique edge
+            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
+            # average
+            avg_w = sum_w / counts
+            data.edge_attr = avg_w
+
+        # 6) Remap nodes to compact range
+        new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
+        new_idx[survivors] = torch.arange(survivors.size(0), device=device)
+        data.edge_index = new_idx[unique_edges]
+
+        # 7) Subset features & update count
+        if hasattr(data, 'x') and data.x is not None:
+            data.x = data.x[survive]
+        data.num_nodes = survivors.size(0)
+
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(apoptosis_p={self.p})"
+
+
+
 def get_graph_augmentation(
     augmentation_mode: str,
     augmentation_list: list[str],
@@ -735,6 +853,10 @@ def get_graph_augmentation(
         # shuffle positions
         if (p_rewire > 0.0) and ("ShufflePositions" in augmentation_list):
             transforms.append(ShufflePositions(p_shuffle))
+
+        # apoptosis
+        if (apoptosis_p > 0.0) and ("Apoptosis" in augmentation_list):
+            transforms.append(Apoptosis(apoptosis_p))
 
         # return the composed transformation
         return Compose(transforms)
