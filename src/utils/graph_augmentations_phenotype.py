@@ -851,6 +851,82 @@ class Mitosis:
         return f"{self.__class__.__name__}(mitosis_p={self.p})"
 
 
+class PhenotypeShift:
+    """
+    Graph phenotype shift augmentation: randomly mutate cell-type features based on
+    a provided mapping of allowed transitions.
+
+    For each node:
+      - with probability `shift_p`, consider a phenotype change
+      - read the current phenotype label at `cell_type_feat` index of `data.x`
+      - if the label has entries in `shift_map`, randomly choose one of the targets
+        and assign it; otherwise leave it unchanged
+
+    Parameters:
+    -----------
+    shift_p : float
+        Overall probability of attempting a phenotype shift per node (in [0,1]).
+    shift_map : dict[int, list[int]]
+        Mapping from original phenotype label to list of plausible new labels.
+    cell_type_feat : int
+        Index in `data.x` where the phenotype (categorical) feature is stored.
+    """
+    def __init__(self, cell_type_feat: int = 0, shift_p: float, shift_map: dict):
+        if not 0.0 <= shift_p <= 1.0:
+            raise ValueError(f"shift_p must be between 0 and 1, got {shift_p}")
+        if not isinstance(shift_map, dict) or not all(isinstance(k, int) and isinstance(v, (list, tuple)) for k, v in shift_map.items()):
+            raise TypeError("shift_map must be a dict[int, list[int]] of integer labels.")
+        if not isinstance(cell_type_feat, int) or cell_type_feat < 0:
+            raise ValueError("cell_type_feat must be a non-negative integer index.")
+        self.shift_p = shift_p
+        # copy map to internal Python dict of ints
+        self.shift_map = {int(k): [int(x) for x in v] for k, v in shift_map.items()}
+        self.cell_type_feat = cell_type_feat
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'x'):
+            raise AttributeError("Data must have an 'x' attribute for features.")
+        x = data.x
+        num_nodes, num_feats = x.size()
+        if self.cell_type_feat >= num_feats:
+            raise IndexError(
+                f"cell_type_feat index {self.cell_type_feat} out of bounds for feature dimension {num_feats}"
+            )
+        device = x.device
+
+        # 1) sample nodes to potentially shift
+        mask = torch.rand(num_nodes, device=device) < self.shift_p
+        idx = mask.nonzero(as_tuple=False).view(-1)
+        if idx.numel() == 0:
+            return data
+
+        # 2) get current labels
+        # assume labels are stored as integers (or floats castable to int)
+        labels = x[:, self.cell_type_feat].long()
+
+        # 3) for each possible original label, mutate the subset
+        for orig_label, targets in self.shift_map.items():
+            # find nodes in idx with this label
+            sel = idx[labels[idx] == orig_label]
+            if sel.numel() == 0:
+                continue
+            # choose new labels uniformly from targets
+            choices = torch.tensor(targets, device=device, dtype=torch.long)
+            # sample one target per node
+            new_idxs = choices[torch.randint(len(choices), (sel.numel(),), device=device)]
+            # assign back (cast to original dtype)
+            x[sel, self.cell_type_feat] = new_idxs.to(x.dtype)
+
+        data.x = x
+        return data
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(shift_p={self.shift_p}, "
+            f"cell_type_feat={self.cell_type_feat}, shift_map={self.shift_map})"
+        )
+
+
 def get_graph_augmentation(
     augmentation_mode: str,
     augmentation_list: list[str],
@@ -865,6 +941,8 @@ def get_graph_augmentation(
     p_shuffle: float,
     apoptosis_p: float,
     mitosis_p: float,
+    shift_p: float,
+    shift_map: dict,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -967,6 +1045,10 @@ def get_graph_augmentation(
         # mitosis
         if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
             transforms.append(Mitosis(mitosis_p, feature_noise_std))
+
+        # phenotype shift
+        if (shift_p > 0.0) and ("PhenotypeShift" in augmentation_list):
+            transforms.append(PhenotypeShift(shift_p, shift_map))
 
         # return the composed transformation
         return Compose(transforms)
