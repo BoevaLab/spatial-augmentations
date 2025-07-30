@@ -1096,6 +1096,7 @@ def get_graph_augmentation(
     feature_noise_std: float,
     p_add: float,
     k_add: int,
+    smooth_strength: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -1196,6 +1197,10 @@ def get_graph_augmentation(
         # add edges by feature similarity
         if (p_add > 0.0) and ("AddEdgesByFeatureSimilarity" in augmentation_list):
             transforms.append(AddEdgesByFeatureSimilarity(p_add, k_add))
+        
+        # smooth features
+        if (smooth_strength > 0.0) and ("SmoothFeatures" in augmentation_list):
+            transforms.append(SmoothFeatures(smooth_strength))
 
         # return the composed transformation
         return Compose(transforms)
