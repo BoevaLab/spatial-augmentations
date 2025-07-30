@@ -31,6 +31,7 @@ import torch
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
 from torch_sparse import SparseTensor
+from torch_scatter import scatter_add
 
 
 def remove_directed_edges(
@@ -1008,6 +1009,79 @@ class LowPassFilter:
     def __repr__(self):
         return f"{self.__class__.__name__}(filter_strength={self.filter_strength})"
 
+class SmoothFeatures:
+    """
+    Smooths features of each node as a convex combination of it and its neighbors.
+
+    The smoothing is done in the feature space. The features of each nodes are (1-smooth_strength) * feature_own + sum_n(smooth_strength/n * feature_neighbor_i).
+    This smoothing simulates transcript leakage from neighboring cells.
+
+    Parameters:
+    -----------
+    smooth_strength : float
+        The strength of the smoothing. Must be between 0 and 1. 0 means no smoothing, 1 means the feature of the node is the average of its neighbors.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature noise transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation assumes that the input graph data contains an `x` attribute representing
+      the node features.
+    - If the `x` attribute is missing, an AttributeError is raised.
+    - If the smooth_strength is not between 0 and 1, a ValueError is raised.
+    """
+    def __init__(self, smooth_strength):
+        self.smooth_strength = smooth_strength
+        if smooth_strength < 0 or smooth_strength > 1:
+            raise ValueError(f"Smooth strength must be between 0 and 1. Got {smooth_strength}.")
+        self.smooth_strength = smooth_strength
+
+    def __call__(self, data):
+        """
+        Applies the feature smoothing transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node features.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with smoothed node features.
+
+        Raises:
+        -------
+        AttributeError
+            If the input graph data does not have an `x` attribute.
+        """
+        if hasattr(data, "x"):
+            # add noise to the features
+            x = data.x
+            edge_index = data.edge_index
+            num_nodes = data.num_nodes
+            
+            src, dest = edge_index
+
+            neighbor_feature_sum = scatter_add(x[dest], src, dim=0, dim_size=num_nodes)
+            degree = scatter_add(torch.ones_like(src, dtype=x.dtype), src, dim=0, dim_size=num_nodes)
+            degree = degree.clamp(min=1).unsqueeze(-1)
+            neighbor_feature_mean = neighbor_feature_sum / degree
+            
+            x_smoothed = (1.0 - self.smooth_strength) * x + self.smooth_strength * neighbor_feature_mean
+
+            data.x = x_smoothed
+        else:
+            raise AttributeError("Data object does not have 'x' attribute.")
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(smooth_strength={self.smooth_strength})"
 
 def get_graph_augmentation(
     augmentation_mode: str,
