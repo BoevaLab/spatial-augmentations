@@ -997,7 +997,7 @@ class FeatureNoise:
         str
             A string describing the transformation and its parameters.
         """
-        return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
+        return f"{self.__class__.__name__}(feature_noise_std={self.noise_std})"
 
 
 class LowPassFilter:
@@ -1194,7 +1194,6 @@ class Apoptosis:
         # 7) Subset features & update count
         if hasattr(data, 'x') and data.x is not None:
             data.x = data.x[survive]
-        data.num_nodes = survivors.size(0)
 
         return data
 
@@ -1326,7 +1325,6 @@ class Mitosis:
         # 6) finalize
         data.edge_index = unique_edges
         data.x = x_out
-        data.num_nodes = num_nodes + k
         return data
 
     def __repr__(self):

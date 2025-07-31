@@ -711,24 +711,19 @@ class Apoptosis:
             if has_weight and w2 is not None:
                 weight_list.append(w2)
 
-        # 5) Combine and dedupe; average weights on duplicates
+        # 5) Combine edges and deduplicate
         combined_edges = torch.cat(edge_list, dim=1)
         if has_weight:
             combined_weights = torch.cat(weight_list, dim=0)
-
-        # find unique edge pairs and map back
-        unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
-        unique_edges = unique_pairs.t()
-
-        if has_weight:
-            # sum weights per unique edge
-            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_weights.dtype, device=device)
-            sum_w.scatter_add_(0, inv, combined_weights)
-            # count occurrences per unique edge
-            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
-            # average
-            avg_w = sum_w / counts
-            data.edge_attr = avg_w
+            # Remove duplicates and keep first occurrence of each edge
+            unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
+            unique_edges = unique_pairs.t()
+            first_indices = torch.zeros(unique_pairs.size(0), dtype=torch.long, device=device)
+            first_indices.scatter_(0, inv, torch.arange(len(inv), device=device), reduce='min')
+            data.edge_attr = combined_weights[first_indices]
+        else:
+            # Just deduplicate edges if no weights
+            unique_edges = torch.unique(combined_edges.t(), dim=0).t()
 
         # 6) Remap nodes to compact range
         new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
@@ -770,8 +765,8 @@ class Mitosis:
         device = x.device
 
         # Handle edge weights
-        has_weight = hasattr(data, 'edge_weight') and data.edge_weight is not None
-        edge_weight = data.edge_weight if has_weight else None
+        has_edge_attr = hasattr(data, 'edge_attr') and data.edge_attr is not None
+        edge_attr = data.edge_attr if has_edge_attr else None
         src, dst = edge_index
 
         # 1) Select nodes to split
@@ -793,53 +788,60 @@ class Mitosis:
 
         # 4) Collect edges and weights
         edge_list = [edge_index]
-        weight_list = [edge_weight] if has_weight else []
+        edge_attr_list = [edge_attr] if has_edge_attr else []
         new_edges = []
-        new_weights = [] if has_weight else None
+        new_edge_attr = [] if has_edge_attr else None
 
         for idx, u in enumerate(to_split.tolist()):
             clone_id = num_nodes + idx
-            # Daughter-original edge weight
-            if has_weight:
-                out_mask = src == u
-                w_out = edge_weight[out_mask]
-                avg_out = w_out.mean() if w_out.numel() > 0 else torch.tensor(0., device=device)
-                w_self = avg_out / 2
-            # Connect the two daughters
-            new_edges += [(u, clone_id), (clone_id, u)]
-            if has_weight:
-                new_weights += [w_self, w_self]
             # Inherit original neighbors
             nbrs = adj[u].storage.col().tolist()
             for v in nbrs:
-                # original u-v weight
-                if has_weight:
+                # find original edge attributes
+                if has_edge_attr:
+                    # check both directions since graph is undirected
                     mask_uv = ((src == u) & (dst == v)) | ((src == v) & (dst == u))
                     idx_uv = mask_uv.nonzero(as_tuple=False)[0]
-                    w_uv = edge_weight[idx_uv]
-                # add undirected inheritance edges
-                new_edges += [(u, v), (v, u), (clone_id, v), (v, clone_id)]
-                if has_weight:
-                    new_weights += [w_uv, w_uv, w_uv, w_uv]
+                    w_uv = edge_attr[idx_uv]
+                # add edges between original node and neighbor
+                new_edges += [(u, v), (v, u)]
+                if has_edge_attr:
+                    new_edge_attr += [w_uv, w_uv]
+                # add same edges for clone
+                new_edges += [(clone_id, v), (v, clone_id)]
+                if has_edge_attr:
+                    new_edge_attr += [w_uv, w_uv]
+                
+            # Connect the two daughters with same edge attributes as original edges
+            if has_edge_attr:
+                # Find first edge weight involving u
+                mask_u = (src == u) | (dst == u)
+                if mask_u.any():
+                    w_self = edge_attr[mask_u.nonzero(as_tuple=False)[0][0]]
+                else:
+                    w_self = torch.tensor(0., device=device)
+            new_edges += [(u, clone_id), (clone_id, u)]
+            if has_edge_attr:
+                new_edge_attr += [w_self, w_self]
 
         if new_edges:
             ne = torch.tensor(new_edges, dtype=torch.long, device=device).t()
             edge_list.append(ne)
-            if has_weight:
-                wn = torch.tensor(new_weights, dtype=edge_weight.dtype, device=device)
-                weight_list.append(wn)
+            if has_edge_attr:
+                wn = torch.tensor(new_edge_attr, dtype=edge_attr.dtype, device=device)
+                edge_attr_list.append(wn)
 
-        # 5) Combine and dedupe; average weights if duplicates
+        # 5) Combine and dedupe; keep first weight occurrence
         combined = torch.cat(edge_list, dim=1)
-        if has_weight:
-            combined_w = torch.cat(weight_list, dim=0)
+        if has_edge_attr:
+            combined_edge_attr = torch.cat(edge_attr_list, dim=0)
         unique_pairs, inv = torch.unique(combined.t(), return_inverse=True, dim=0)
         unique_edges = unique_pairs.t()
-        if has_weight:
-            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_w.dtype, device=device)
-            sum_w.scatter_add_(0, inv, combined_w)
-            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
-            data.edge_weight = sum_w / counts
+        if has_edge_attr:
+            # For each unique edge, take the first weight that appears
+            first_indices = torch.zeros(unique_pairs.size(0), dtype=torch.long, device=device)
+            first_indices.scatter_(0, inv, torch.arange(len(inv), device=device), reduce='min')
+            data.edge_attr = combined_edge_attr[first_indices]
 
         # 6) Finalize
         data.edge_index = unique_edges
@@ -871,7 +873,7 @@ class PhenotypeShift:
     cell_type_feat : int
         Index in `data.x` where the phenotype (categorical) feature is stored.
     """
-    def __init__(self, cell_type_feat: int = 0, shift_p: float, shift_map: dict):
+    def __init__(self, shift_p: float, shift_map: dict, cell_type_feat: int = 0):
         if not 0.0 <= shift_p <= 1.0:
             raise ValueError(f"shift_p must be between 0 and 1, got {shift_p}")
         if not isinstance(shift_map, dict) or not all(isinstance(k, int) and isinstance(v, (list, tuple)) for k, v in shift_map.items()):
