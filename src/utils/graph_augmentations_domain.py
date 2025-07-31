@@ -23,13 +23,16 @@ Functions:
 #       some clusters identified by a clustering algorithm like kmeans
 # TODO: implement low-pass filter for features
 
+from collections import defaultdict
 from copy import deepcopy
 from typing import Tuple
 
 import numpy as np
 import torch
+from torch_geometric.data import Data
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
+from torch_scatter import scatter_add
 from torch_sparse import SparseTensor
 
 
@@ -995,7 +998,7 @@ class FeatureNoise:
         str
             A string describing the transformation and its parameters.
         """
-        return f"{self.__class__.__name__}(spatial_noise_std={self.noise_std})"
+        return f"{self.__class__.__name__}(feature_noise_std={self.noise_std})"
 
 
 class LowPassFilter:
@@ -1007,6 +1010,331 @@ class LowPassFilter:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(filter_strength={self.filter_strength})"
+
+class SmoothFeatures:
+    """
+    Smooths features of each node as a convex combination of it and its neighbors.
+
+    The smoothing is done in the feature space. The features of each nodes are (1-smooth_strength) * feature_own + sum_n(smooth_strength/n * feature_neighbor_i).
+    This smoothing simulates transcript leakage from neighboring cells.
+
+    Parameters:
+    -----------
+    smooth_strength : float
+        The strength of the smoothing. Must be between 0 and 1. 0 means no smoothing, 1 means the feature of the node is the average of its neighbors.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature noise transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+
+    Notes:
+    ------
+    - The transformation assumes that the input graph data contains an `x` attribute representing
+      the node features.
+    - If the `x` attribute is missing, an AttributeError is raised.
+    - If the smooth_strength is not between 0 and 1, a ValueError is raised.
+    """
+    def __init__(self, smooth_strength):
+        self.smooth_strength = smooth_strength
+        if smooth_strength < 0 or smooth_strength > 1:
+            raise ValueError(f"Smooth strength must be between 0 and 1. Got {smooth_strength}.")
+        self.smooth_strength = smooth_strength
+
+    def __call__(self, data):
+        """
+        Applies the feature smoothing transformation to the input graph data.
+
+        Parameters:
+        -----------
+        data : Data
+            The input graph data containing node features.
+
+        Returns:
+        --------
+        Data
+            The transformed graph data with smoothed node features.
+
+        Raises:
+        -------
+        AttributeError
+            If the input graph data does not have an `x` attribute.
+        """
+        if hasattr(data, "x"):
+            # add noise to the features
+            x = data.x
+            edge_index = data.edge_index
+            num_nodes = data.num_nodes
+            
+            src, dest = edge_index
+
+            neighbor_feature_sum = scatter_add(x[dest], src, dim=0, dim_size=num_nodes)
+            degree = scatter_add(torch.ones_like(src, dtype=x.dtype), src, dim=0, dim_size=num_nodes)
+            degree = degree.clamp(min=1).unsqueeze(-1)
+            neighbor_feature_mean = neighbor_feature_sum / degree
+            
+            x_smoothed = (1.0 - self.smooth_strength) * x + self.smooth_strength * neighbor_feature_mean
+
+            data.x = x_smoothed
+        else:
+            raise AttributeError("Data object does not have 'x' attribute.")
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(smooth_strength={self.smooth_strength})"
+
+
+class Apoptosis:
+    """
+    Graph apoptosis with weighted edges: randomly drop nodes and rewire dangling edges
+    to *all* surviving neighbors of the dropped node, avoiding self-loops and existing connections.
+    We propagate original edge weights to the new edges and, when duplicates occur,
+    average the weights of all instances.
+    """
+    def __init__(self, apoptosis_p: float):
+        if not 0.0 <= apoptosis_p <= 1.0:
+            raise ValueError(f"apoptosis_p must be between 0 and 1, got {apoptosis_p}")
+        self.p = apoptosis_p
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'edge_index'):
+            raise AttributeError("Input data must have 'edge_index'")
+        edge_index = data.edge_index
+        num_nodes = data.num_nodes
+        device = edge_index.device
+
+        # optional original weights
+        has_weight = hasattr(data, 'edge_weight') and data.edge_weight is not None
+        edge_weight = data.edge_weight if has_weight else None
+
+        # 1) Determine survivors
+        survive = torch.rand(num_nodes, device=device) > self.p
+        survivors = survive.nonzero(as_tuple=False).view(-1)
+
+        # 2) Build undirected adjacency
+        row = torch.cat([edge_index[0], edge_index[1]], dim=0)
+        col = torch.cat([edge_index[1], edge_index[0]], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
+
+        src, dst = edge_index
+
+        # 3) Keep surviving-surviving edges
+        mask_keep = survive[src] & survive[dst]
+        kept_edges = edge_index[:, mask_keep]
+        kept_weights = edge_weight[mask_keep] if has_weight else None
+
+        edge_list = [kept_edges]
+        weight_list = [kept_weights] if has_weight else []
+
+        # 4) Rewire dangling edges to all valid survivors
+        def rewire_all(out_idx, in_idx, mask, weights):
+            idx = mask.nonzero(as_tuple=False).view(-1)
+            if idx.numel() == 0:
+                return None, None
+            u = out_idx[idx]; v = in_idx[idx]
+            w = weights[idx] if weights is not None else None
+            rewired = []
+            rew_w = [] if w is not None else None
+            for i, (uu, vv) in enumerate(zip(u.tolist(), v.tolist())):
+                weight_uv = w[i] if w is not None else None
+                neighbors = adj[vv].storage.col()
+                cand = neighbors[survive[neighbors]]
+                forb = adj[uu].storage.col()
+                valid = cand[(cand != uu) & (~torch.isin(cand, forb))]
+                if valid.numel() > 0:
+                    for nbr in valid.tolist():
+                        rewired.append((uu, nbr))
+                        if weight_uv is not None:
+                            rew_w.append(weight_uv)
+            edges = torch.tensor(rewired, dtype=torch.long, device=device).t() if rewired else None
+            weights_out = torch.tensor(rew_w, dtype=edge_weight.dtype, device=device) if w is not None and rew_w else None
+            return edges, weights_out
+
+        # src survives, dst died
+        mask1 = survive[src] & ~survive[dst]
+        e1, w1 = rewire_all(src, dst, mask1, edge_weight if has_weight else None)
+        if e1 is not None:
+            edge_list.append(e1)
+            if has_weight and w1 is not None:
+                weight_list.append(w1)
+
+        # dst survives, src died — flip orientation
+        mask2 = ~survive[src] & survive[dst]
+        e2, w2 = rewire_all(dst, src, mask2, edge_weight if has_weight else None)
+        if e2 is not None:
+            edge_list.append(e2.flip(0))
+            if has_weight and w2 is not None:
+                weight_list.append(w2)
+
+        # 5) Combine and dedupe; average weights on duplicates
+        combined_edges = torch.cat(edge_list, dim=1)
+        if has_weight:
+            combined_weights = torch.cat(weight_list, dim=0)
+
+        # find unique edge pairs and map back
+        unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
+        unique_edges = unique_pairs.t()
+
+        if has_weight:
+            # sum weights per unique edge
+            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_weights.dtype, device=device)
+            sum_w.scatter_add_(0, inv, combined_weights)
+            # count occurrences per unique edge
+            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
+            # average
+            avg_w = sum_w / counts
+            data.edge_weight = avg_w
+
+        # 6) Remap nodes to compact range
+        new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
+        new_idx[survivors] = torch.arange(survivors.size(0), device=device)
+        data.edge_index = new_idx[unique_edges]
+        data.num_nodes = survivors.size(0)
+
+        # 7) Subset features & update count
+        if hasattr(data, 'x') and data.x is not None:
+            data.x = data.x[survive]
+
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(apoptosis_p={self.p})"
+
+
+class Mitosis:
+    """
+    Graph mitosis with weighted edges: randomly select nodes with probability p, and for each selected node:
+      - keep the original as one daughter, create a new daughter node
+      - connect the two daughters by an edge with weight = average outgoing-edge weight / 2
+      - both daughters inherit all original edges to neighbors, copying weights
+      - perturb all features of both daughters independently with Gaussian noise,
+        using per-feature standard deviations
+    """
+    def __init__(self, mitosis_p: float, mitosis_feature_noise_std):
+        if not 0.0 <= mitosis_p <= 1.0:
+            raise ValueError(f"mitosis_p must be between 0 and 1, got {mitosis_p}")
+        self.p = mitosis_p
+        # allow scalar or per-feature std tensor
+        if isinstance(mitosis_feature_noise_std, (float, int)):
+            self.feature_stds = None
+            self.uniform_std = float(mitosis_feature_noise_std)
+        elif isinstance(mitosis_feature_noise_std, (list, tuple, torch.Tensor)):
+            arr = torch.tensor(mitosis_feature_noise_std, dtype=torch.float) if not isinstance(mitosis_feature_noise_std, torch.Tensor) else mitosis_feature_noise_std.float()
+            self.feature_stds = arr
+            self.uniform_std = None
+        else:
+            raise TypeError("mitosis_feature_noise_std must be float or sequence of floats or torch.Tensor")
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'edge_index') or not hasattr(data, 'x'):
+            raise AttributeError("Data must have 'edge_index' and 'x' attributes")
+
+        edge_index = data.edge_index
+        x = data.x
+        num_nodes, num_feats = x.size()
+        device = x.device
+
+        # handle edge weights
+        has_weight = hasattr(data, 'edge_weight') and data.edge_weight is not None
+        edge_weight = data.edge_weight if has_weight else None
+        src, dst = edge_index
+
+        # prepare per-feature std vector
+        if self.feature_stds is not None:
+            if self.feature_stds.numel() != num_feats:
+                raise ValueError(
+                    f"Length of feature_noise_std ({self.feature_stds.numel()}) must match number of features ({num_feats})"
+                )
+            stds = self.feature_stds.to(device)
+        else:
+            stds = torch.full((num_feats,), self.uniform_std, device=device)
+
+        # 1) select nodes to split
+        mask = torch.rand(num_nodes, device=device) < self.p
+        to_split = mask.nonzero(as_tuple=False).view(-1)
+        k = to_split.numel()
+        if k == 0:
+            return data
+
+        # 2) build undirected adjacency
+        row = torch.cat([src, dst], dim=0)
+        col = torch.cat([dst, src], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
+
+        # 3) perturb features and clone
+        orig_feats = x[to_split]  # [k, F]
+        noise_orig = torch.randn((k, num_feats), device=device) * stds.unsqueeze(0)
+        noise_clone = torch.randn((k, num_feats), device=device) * stds.unsqueeze(0)
+        x[to_split] = orig_feats + noise_orig
+        new_feats = orig_feats + noise_clone
+        x_out = torch.cat([x, new_feats], dim=0)
+
+        # 4) collect existing and new edges & weights
+        edge_list = [edge_index]
+        weight_list = [edge_weight] if has_weight else []
+
+        new_edges = []  # list of (u, v)
+        new_weights = [] if has_weight else None
+
+        for idx, u in enumerate(to_split.tolist()):
+            clone_id = num_nodes + idx
+            # compute weight for daughter-original edge
+            if has_weight:
+                out_mask = src == u
+                w_out = edge_weight[out_mask]
+                avg_out = w_out.mean() if w_out.numel()>0 else torch.tensor(0., device=device)
+                w_self = avg_out / 2
+            # connect the two daughters
+            new_edges += [(u, clone_id), (clone_id, u)]
+            if has_weight:
+                new_weights += [w_self, w_self]
+            # inherit all original neighbors
+            nbrs = adj[u].storage.col().tolist()
+            for v in nbrs:
+                # find original weight of edge u-v
+                if has_weight:
+                    mask_uv = (src == u) & (dst == v)
+                    if not mask_uv.any():
+                        mask_uv = (src == v) & (dst == u)
+                    w_uv = edge_weight[mask_uv.nonzero(as_tuple=False)[0]]
+                # four directed edges
+                new_edges += [(u, v), (v, u), (clone_id, v), (v, clone_id)]
+                if has_weight:
+                    new_weights += [w_uv, w_uv, w_uv, w_uv]
+
+        # append
+        if new_edges:
+            ne = torch.tensor(new_edges, dtype=torch.long, device=device).t()
+            edge_list.append(ne)
+            if has_weight:
+                wne = torch.tensor(new_weights, dtype=edge_weight.dtype, device=device)
+                weight_list.append(wne)
+
+        # 5) combine and dedupe, average weights on duplicates
+        combined = torch.cat(edge_list, dim=1)
+        if has_weight:
+            combined_w = torch.cat(weight_list, dim=0)
+        unique_pairs, inv = torch.unique(combined.t(), return_inverse=True, dim=0)
+        unique_edges = unique_pairs.t()
+        if has_weight:
+            sum_w = torch.zeros(unique_pairs.size(0), dtype=combined_w.dtype, device=device)
+            sum_w.scatter_add_(0, inv, combined_w)
+            counts = torch.bincount(inv, minlength=unique_pairs.size(0)).to(sum_w)
+            data.edge_weight = sum_w / counts
+
+        # 6) finalize
+        data.edge_index = unique_edges
+        data.x = x_out
+        data.num_nodes = num_nodes + k
+        return data
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(mitosis_p={self.p}, "
+            f"mitosis_feature_noise_std={self.feature_stds.tolist() if self.feature_stds is not None else self.uniform_std})"
+        )
 
 
 def get_graph_augmentation(
@@ -1022,6 +1350,10 @@ def get_graph_augmentation(
     feature_noise_std: float,
     p_add: float,
     k_add: int,
+    smooth_strength: float,
+    apoptosis_p: float,
+    mitosis_p: float,
+    mitosis_feature_noise_std: float,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -1122,6 +1454,18 @@ def get_graph_augmentation(
         # add edges by feature similarity
         if (p_add > 0.0) and ("AddEdgesByFeatureSimilarity" in augmentation_list):
             transforms.append(AddEdgesByFeatureSimilarity(p_add, k_add))
+        
+        # smooth features
+        if (smooth_strength > 0.0) and ("SmoothFeatures" in augmentation_list):
+            transforms.append(SmoothFeatures(smooth_strength))
+
+        # apoptosis
+        if (apoptosis_p > 0.0) and ("Apoptosis" in augmentation_list):
+            transforms.append(Apoptosis(apoptosis_p))
+
+        # mitosis
+        if (mitosis_p > 0.0) and (mitosis_feature_noise_std > 0.0) and ("Mitosis" in augmentation_list):
+            transforms.append(Mitosis(mitosis_p, mitosis_feature_noise_std))
 
         # return the composed transformation
         return Compose(transforms)

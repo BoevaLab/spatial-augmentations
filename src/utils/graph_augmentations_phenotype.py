@@ -3,6 +3,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from torch_geometric.data import Data
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
 from torch_sparse import SparseTensor
@@ -629,6 +630,312 @@ class FeatureNoise:
         return f"{self.__class__.__name__}(feature_noise_std={self.noise_std}, feature_index={self.feature_index})"
 
 
+class Apoptosis:
+    """
+    Graph apoptosis with weighted edges: randomly drop nodes and rewire dangling edges
+    to *all* surviving neighbors of the dropped node, avoiding self-loops and existing connections.
+    We propagate original edge weights to the new edges and, when duplicates occur,
+    average the weights of all instances.
+    """
+    def __init__(self, apoptosis_p: float):
+        if not 0.0 <= apoptosis_p <= 1.0:
+            raise ValueError(f"apoptosis_p must be between 0 and 1, got {apoptosis_p}")
+        self.p = apoptosis_p
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'edge_index'):
+            raise AttributeError("Input data must have 'edge_index'")
+        edge_index = data.edge_index
+        num_nodes = data.num_nodes
+        device = edge_index.device
+
+        # optional original weights
+        has_weight = hasattr(data, 'edge_attr') and data.edge_attr is not None
+        edge_attr = data.edge_attr if has_weight else None
+
+        # 1) Determine survivors
+        survive = torch.rand(num_nodes, device=device) > self.p
+        survivors = survive.nonzero(as_tuple=False).view(-1)
+
+        # 2) Build undirected adjacency
+        row = torch.cat([edge_index[0], edge_index[1]], dim=0)
+        col = torch.cat([edge_index[1], edge_index[0]], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
+
+        src, dst = edge_index
+
+        # 3) Keep surviving-surviving edges
+        mask_keep = survive[src] & survive[dst]
+        kept_edges = edge_index[:, mask_keep]
+        kept_weights = edge_attr[mask_keep] if has_weight else None
+
+        edge_list = [kept_edges]
+        weight_list = [kept_weights] if has_weight else []
+
+        # 4) Rewire dangling edges to all valid survivors
+        def rewire_all(out_idx, in_idx, mask, weights):
+            idx = mask.nonzero(as_tuple=False).view(-1)
+            if idx.numel() == 0:
+                return None, None
+            u = out_idx[idx]; v = in_idx[idx]
+            w = weights[idx] if weights is not None else None
+            rewired = []
+            rew_w = [] if w is not None else None
+            for i, (uu, vv) in enumerate(zip(u.tolist(), v.tolist())):
+                weight_uv = w[i] if w is not None else None
+                neighbors = adj[vv].storage.col()
+                cand = neighbors[survive[neighbors]]
+                forb = adj[uu].storage.col()
+                valid = cand[(cand != uu) & (~torch.isin(cand, forb))]
+                if valid.numel() > 0:
+                    for nbr in valid.tolist():
+                        rewired.append((uu, nbr))
+                        if weight_uv is not None:
+                            rew_w.append(weight_uv)
+            edges = torch.tensor(rewired, dtype=torch.long, device=device).t() if rewired else None
+            weights_out = torch.tensor(rew_w, dtype=edge_attr.dtype, device=device) if w is not None and rew_w else None
+            return edges, weights_out
+
+        # src survives, dst died
+        mask1 = survive[src] & ~survive[dst]
+        e1, w1 = rewire_all(src, dst, mask1, edge_attr if has_weight else None)
+        if e1 is not None:
+            edge_list.append(e1)
+            if has_weight and w1 is not None:
+                weight_list.append(w1)
+
+        # dst survives, src died — flip orientation
+        mask2 = ~survive[src] & survive[dst]
+        e2, w2 = rewire_all(dst, src, mask2, edge_attr if has_weight else None)
+        if e2 is not None:
+            edge_list.append(e2.flip(0))
+            if has_weight and w2 is not None:
+                weight_list.append(w2)
+
+        # 5) Combine edges and deduplicate
+        combined_edges = torch.cat(edge_list, dim=1)
+        if has_weight:
+            combined_weights = torch.cat(weight_list, dim=0)
+            # Remove duplicates and keep first occurrence of each edge
+            unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
+            unique_edges = unique_pairs.t()
+            # Create a mapping from unique edge index to the first occurrence
+            first_indices = torch.full((unique_pairs.size(0),), len(inv), dtype=torch.long, device=device)
+            for i, idx in enumerate(inv):
+                if first_indices[idx] == len(inv):  # not set yet
+                    first_indices[idx] = i
+            data.edge_attr = combined_weights[first_indices]
+        else:
+            # Just deduplicate edges if no weights
+            unique_edges = torch.unique(combined_edges.t(), dim=0).t()
+
+        # 6) Remap nodes to compact range
+        new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
+        new_idx[survivors] = torch.arange(survivors.size(0), device=device)
+        data.edge_index = new_idx[unique_edges]
+
+        # 7) Subset features & update count
+        if hasattr(data, 'x') and data.x is not None:
+            data.x = data.x[survive]
+        data.num_nodes = survivors.size(0)
+
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(apoptosis_p={self.p})"
+
+
+class Mitosis:
+    """
+    Graph mitosis: randomly select nodes with probability p, and for each selected node:
+      - keep the original as one daughter, create a new daughter node
+      - connect the two daughters by an edge with weight = average outgoing-edge weight / 2
+      - both daughters inherit all original edges to neighbors, copying weights
+      - features (x) of the daughter are exact copies of the original node's features
+    """
+    def __init__(self, mitosis_p: float):
+        if not 0.0 <= mitosis_p <= 1.0:
+            raise ValueError(f"mitosis_p must be between 0 and 1, got {mitosis_p}")
+        self.p = mitosis_p
+
+    def __call__(self, data: Data) -> Data:
+        # Ensure graph has edge_index, x
+        if not hasattr(data, 'edge_index') or not hasattr(data, 'x'):
+            raise AttributeError("Data must have 'edge_index' and 'x' attributes")
+
+        edge_index = data.edge_index
+        x = data.x
+        num_nodes, num_feats = x.size()
+        device = x.device
+
+        # Handle edge weights
+        has_edge_attr = hasattr(data, 'edge_attr') and data.edge_attr is not None
+        edge_attr = data.edge_attr if has_edge_attr else None
+        src, dst = edge_index
+
+        # 1) Select nodes to split
+        mask = torch.rand(num_nodes, device=device) < self.p
+        to_split = mask.nonzero(as_tuple=False).view(-1)
+        k = to_split.numel()
+        if k == 0:
+            return data
+
+        # 2) Build undirected adjacency for neighbor lookup
+        row = torch.cat([src, dst], dim=0)
+        col = torch.cat([dst, src], dim=0)
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
+
+        # 3) Clone features without noise
+        orig_feats = x[to_split]            # [k, F]
+        new_feats = orig_feats.clone()      # exact copy
+        x_out = torch.cat([x, new_feats], dim=0)
+
+        # 4) Collect edges and weights
+        edge_list = [edge_index]
+        edge_attr_list = [edge_attr] if has_edge_attr else []
+        new_edges = []
+        new_edge_attr = [] if has_edge_attr else None
+
+        for idx, u in enumerate(to_split.tolist()):
+            clone_id = num_nodes + idx
+            # Inherit original neighbors
+            nbrs = adj[u].storage.col().tolist()
+            for v in nbrs:
+                # find original edge attributes
+                if has_edge_attr:
+                    # check both directions since graph is undirected
+                    mask_uv = ((src == u) & (dst == v)) | ((src == v) & (dst == u))
+                    idx_uv = mask_uv.nonzero(as_tuple=False)[0]
+                    w_uv = edge_attr[idx_uv]
+                # add edges between original node and neighbor
+                new_edges += [(u, v), (v, u)]
+                if has_edge_attr:
+                    new_edge_attr += [w_uv, w_uv]
+                # add same edges for clone
+                new_edges += [(clone_id, v), (v, clone_id)]
+                if has_edge_attr:
+                    new_edge_attr += [w_uv, w_uv]
+                
+            # Connect the two daughters with same edge attributes as original edges
+            if has_edge_attr:
+                # Find first edge weight involving u
+                mask_u = (src == u) | (dst == u)
+                if mask_u.any():
+                    w_self = edge_attr[mask_u.nonzero(as_tuple=False)[0][0]]
+                else:
+                    w_self = torch.tensor(0., device=device)
+            new_edges += [(u, clone_id), (clone_id, u)]
+            if has_edge_attr:
+                new_edge_attr += [w_self, w_self]
+
+        if new_edges:
+            ne = torch.tensor(new_edges, dtype=torch.long, device=device).t()
+            edge_list.append(ne)
+            if has_edge_attr:
+                wn = torch.tensor(new_edge_attr, dtype=edge_attr.dtype, device=device)
+                edge_attr_list.append(wn)
+
+        # 5) Combine and dedupe; keep first weight occurrence
+        combined = torch.cat(edge_list, dim=1)
+        if has_edge_attr:
+            combined_edge_attr = torch.cat(edge_attr_list, dim=0)
+        unique_pairs, inv = torch.unique(combined.t(), return_inverse=True, dim=0)
+        unique_edges = unique_pairs.t()
+        if has_edge_attr:
+            # For each unique edge, take the first weight that appears
+            # Create a mapping from unique edge index to the first occurrence
+            first_indices = torch.full((unique_pairs.size(0),), len(inv), dtype=torch.long, device=device)
+            for i, idx in enumerate(inv):
+                if first_indices[idx] == len(inv):  # not set yet
+                    first_indices[idx] = i
+            data.edge_attr = combined_edge_attr[first_indices]
+
+        # 6) Finalize
+        data.edge_index = unique_edges
+        data.x = x_out
+        data.num_nodes = num_nodes + k
+        return data
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(mitosis_p={self.p})"
+
+
+class PhenotypeShift:
+    """
+    Graph phenotype shift augmentation: randomly mutate cell-type features based on
+    a provided mapping of allowed transitions.
+
+    For each node:
+      - with probability `shift_p`, consider a phenotype change
+      - read the current phenotype label at `cell_type_feat` index of `data.x`
+      - if the label has entries in `shift_map`, randomly choose one of the targets
+        and assign it; otherwise leave it unchanged
+
+    Parameters:
+    -----------
+    shift_p : float
+        Overall probability of attempting a phenotype shift per node (in [0,1]).
+    shift_map : dict[int, list[int]]
+        Mapping from original phenotype label to list of plausible new labels.
+    cell_type_feat : int
+        Index in `data.x` where the phenotype (categorical) feature is stored.
+    """
+    def __init__(self, shift_p: float, shift_map: dict, cell_type_feat: int = 0):
+        if not 0.0 <= shift_p <= 1.0:
+            raise ValueError(f"shift_p must be between 0 and 1, got {shift_p}")
+        if not isinstance(shift_map, dict) or not all(isinstance(k, int) and isinstance(v, (list, tuple)) for k, v in shift_map.items()):
+            raise TypeError("shift_map must be a dict[int, list[int]] of integer labels.")
+        if not isinstance(cell_type_feat, int) or cell_type_feat < 0:
+            raise ValueError("cell_type_feat must be a non-negative integer index.")
+        self.shift_p = shift_p
+        # copy map to internal Python dict of ints
+        self.shift_map = {int(k): [int(x) for x in v] for k, v in shift_map.items()}
+        self.cell_type_feat = cell_type_feat
+
+    def __call__(self, data: Data) -> Data:
+        if not hasattr(data, 'x'):
+            raise AttributeError("Data must have an 'x' attribute for features.")
+        x = data.x
+        num_nodes, num_feats = x.size()
+        if self.cell_type_feat >= num_feats:
+            raise IndexError(
+                f"cell_type_feat index {self.cell_type_feat} out of bounds for feature dimension {num_feats}"
+            )
+        device = x.device
+
+        # 1) sample nodes to potentially shift
+        mask = torch.rand(num_nodes, device=device) < self.shift_p
+        idx = mask.nonzero(as_tuple=False).view(-1)
+        if idx.numel() == 0:
+            return data
+
+        # 2) get current labels
+        # assume labels are stored as integers (or floats castable to int)
+        labels = x[:, self.cell_type_feat].long()
+
+        # 3) for each possible original label, mutate the subset
+        for orig_label, targets in self.shift_map.items():
+            # find nodes in idx with this label
+            sel = idx[labels[idx] == orig_label]
+            if sel.numel() == 0:
+                continue
+            # choose new labels uniformly from targets
+            choices = torch.tensor(targets, device=device, dtype=torch.long)
+            # sample one target per node
+            new_idxs = choices[torch.randint(len(choices), (sel.numel(),), device=device)]
+            # assign back (cast to original dtype)
+            x[sel, self.cell_type_feat] = new_idxs.to(x.dtype)
+
+        data.x = x
+        return data
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(shift_p={self.shift_p}, "
+            f"cell_type_feat={self.cell_type_feat}, shift_map={self.shift_map})"
+        )
+
+
 def get_graph_augmentation(
     augmentation_mode: str,
     augmentation_list: list[str],
@@ -641,6 +948,10 @@ def get_graph_augmentation(
     p_add: float,
     k_add: int,
     p_shuffle: float,
+    apoptosis_p: float,
+    mitosis_p: float,
+    shift_p: float,
+    shift_map: dict,
 ):
     """
     Creates a composed graph augmentation pipeline based on the specified method and parameters.
@@ -735,6 +1046,18 @@ def get_graph_augmentation(
         # shuffle positions
         if (p_rewire > 0.0) and ("ShufflePositions" in augmentation_list):
             transforms.append(ShufflePositions(p_shuffle))
+
+        # apoptosis
+        if (apoptosis_p > 0.0) and ("Apoptosis" in augmentation_list):
+            transforms.append(Apoptosis(apoptosis_p))
+
+        # mitosis
+        if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
+            transforms.append(Mitosis(mitosis_p, feature_noise_std))
+
+        # phenotype shift
+        if (shift_p > 0.0) and ("PhenotypeShift" in augmentation_list):
+            transforms.append(PhenotypeShift(shift_p, shift_map))
 
         # return the composed transformation
         return Compose(transforms)
