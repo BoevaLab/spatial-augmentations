@@ -657,10 +657,10 @@ class Apoptosis:
         survive = torch.rand(num_nodes, device=device) > self.p
         survivors = survive.nonzero(as_tuple=False).view(-1)
 
-        # 2) Build undirected CSR adjacency
+        # 2) Build undirected adjacency
         row = torch.cat([edge_index[0], edge_index[1]], dim=0)
         col = torch.cat([edge_index[1], edge_index[0]], dim=0)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
 
         src, dst = edge_index
 
@@ -777,10 +777,10 @@ class Mitosis:
         if k == 0:
             return data
 
-        # 2) Build undirected adjacency in CSR for neighbor lookup
+        # 2) Build undirected adjacency for neighbor lookup
         row = torch.cat([src, dst], dim=0)
         col = torch.cat([dst, src], dim=0)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
 
         # 3) Clone features without noise
         orig_feats = x[to_split]            # [k, F]

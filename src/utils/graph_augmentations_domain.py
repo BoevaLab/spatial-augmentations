@@ -1113,10 +1113,10 @@ class Apoptosis:
         survive = torch.rand(num_nodes, device=device) > self.p
         survivors = survive.nonzero(as_tuple=False).view(-1)
 
-        # 2) Build undirected CSR adjacency
+        # 2) Build undirected adjacency
         row = torch.cat([edge_index[0], edge_index[1]], dim=0)
         col = torch.cat([edge_index[1], edge_index[0]], dim=0)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
 
         src, dst = edge_index
 
@@ -1191,6 +1191,7 @@ class Apoptosis:
         new_idx = torch.full((num_nodes,), -1, dtype=torch.long, device=device)
         new_idx[survivors] = torch.arange(survivors.size(0), device=device)
         data.edge_index = new_idx[unique_edges]
+        data.num_nodes = survivors.size(0)
 
         # 7) Subset features & update count
         if hasattr(data, 'x') and data.x is not None:
@@ -1257,10 +1258,10 @@ class Mitosis:
         if k == 0:
             return data
 
-        # 2) build undirected CSR adjacency
+        # 2) build undirected adjacency
         row = torch.cat([src, dst], dim=0)
         col = torch.cat([dst, src], dim=0)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes)).to('csr')
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(num_nodes, num_nodes))
 
         # 3) perturb features and clone
         orig_feats = x[to_split]  # [k, F]
@@ -1326,6 +1327,7 @@ class Mitosis:
         # 6) finalize
         data.edge_index = unique_edges
         data.x = x_out
+        data.num_nodes = num_nodes + k
         return data
 
     def __repr__(self):
