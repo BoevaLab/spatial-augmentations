@@ -97,3 +97,11 @@ def test_smooth_features_strength_half():
     aug = SmoothFeatures(smooth_strength=0.5)
     out = aug(data.clone())
     assert torch.allclose(out.x, torch.tensor([[2.0],[2.0]]))
+
+def test_smooth_features_strength_alpha():
+    edge_index = torch.tensor([[0,1],[1,0]], dtype=torch.long)
+    x = torch.tensor([[1.0],[3.0]], dtype=torch.float)
+    data = Data(x=x.clone(), edge_index=edge_index, num_nodes=2)
+    aug = SmoothFeatures(smooth_strength=0.1)
+    out = aug(data.clone())
+    assert torch.allclose(out.x, torch.tensor([[1.2],[2.8]]))
