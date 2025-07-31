@@ -29,6 +29,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from torch_geometric.data import Data
 from torch_geometric.transforms import Compose
 from torch_geometric.utils import coalesce, degree, dropout_edge, remove_self_loops
 from torch_scatter import scatter_add
