@@ -719,8 +719,11 @@ class Apoptosis:
             # Remove duplicates and keep first occurrence of each edge
             unique_pairs, inv = torch.unique(combined_edges.t(), return_inverse=True, dim=0)
             unique_edges = unique_pairs.t()
-            first_indices = torch.zeros(unique_pairs.size(0), dtype=torch.long, device=device)
-            first_indices.scatter_(0, inv, torch.arange(len(inv), device=device), reduce='min')
+            # Create a mapping from unique edge index to the first occurrence
+            first_indices = torch.full((unique_pairs.size(0),), len(inv), dtype=torch.long, device=device)
+            for i, idx in enumerate(inv):
+                if first_indices[idx] == len(inv):  # not set yet
+                    first_indices[idx] = i
             data.edge_attr = combined_weights[first_indices]
         else:
             # Just deduplicate edges if no weights
@@ -840,8 +843,11 @@ class Mitosis:
         unique_edges = unique_pairs.t()
         if has_edge_attr:
             # For each unique edge, take the first weight that appears
-            first_indices = torch.zeros(unique_pairs.size(0), dtype=torch.long, device=device)
-            first_indices.scatter_(0, inv, torch.arange(len(inv), device=device), reduce='min')
+            # Create a mapping from unique edge index to the first occurrence
+            first_indices = torch.full((unique_pairs.size(0),), len(inv), dtype=torch.long, device=device)
+            for i, idx in enumerate(inv):
+                if first_indices[idx] == len(inv):  # not set yet
+                    first_indices[idx] = i
             data.edge_attr = combined_edge_attr[first_indices]
 
         # 6) Finalize
