@@ -50,4 +50,8 @@ feature_noise_std: 0. # standard deviation of the feature noise augmentation
 p_add: 0. # probability of adding new edges for the graph augmentation
 k_add: 0 # number of new edges to add for the graph augmentation
 p_shuffle: 0. # probability of shuffling nodes for the graph augmentation
+apoptosis_p: 0. # probability of apoptosis augmentation
+mitosis_p: 0. # probability of mitosis augmentation
+shift_p: 0. # probability of phenotype shift augmentation
+shift_map: {} # mapping for phenotype shift augmentation
 seed: ${seed} # random seed for reproducibility

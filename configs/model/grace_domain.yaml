@@ -1,0 +1,60 @@
+_target_: src.models.grace_domain_module.GRACELitModule
+
+# Model configuration
+net:
+  _target_: src.models.components.grace.GRACEModel
+  encoder:
+    _target_: src.models.components.grace.Encoder
+    in_channels: ${data.num_features}
+    out_channels: 256
+    activation: torch.nn.functional.relu
+    base_model: torch_geometric.nn.GCNConv
+    k: 2
+  num_hidden: 256
+  num_proj_hidden: 256
+  tau: 0.5
+
+# Training configuration
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+  weight_decay: 1e-5
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: 1000
+
+compile: false
+
+# GRACE-specific parameters
+augmentation_mode: "baseline"
+augmentation_list1: []
+augmentation_list2: []
+drop_edge_p1: 0.3
+drop_edge_p2: 0.4
+drop_feat_p1: 0.3
+drop_feat_p2: 0.4
+mu: 0.0
+p_lambda: 0.0
+p_rewire: 0.0
+p_shuffle: 0.0
+spatial_noise_std: 0.0
+feature_noise_std: 0.0
+p_add: 0.0
+k_add: 0
+smooth_strength: 0.0
+apoptosis_p: 0.0
+mitosis_p: 0.0
+mitosis_feature_noise_std: 0.0
+tau: 0.5
+
+# Spatial regularization (optional)
+spatial_regularization_strength: 0.0
+node_subset_sz: 1000
+
+# Data and other parameters
+processed_dir: ${paths.processed_dir}
+seed: ${seed}
+
+# Warmup configuration
+warmup_steps: 100 
