@@ -1071,6 +1071,10 @@ def get_graph_augmentation(
         # drop features
         if (drop_feat_p > 0.0) and ("DropFeatures" in augmentation_list):
             transforms.append(DropFeatures(drop_feat_p))
+        
+        # drop features GRACE style (same features dropped for all nodes)
+        if (drop_feat_p > 0.0) and ("DropFeaturesGRACE" in augmentation_list):
+            transforms.append(DropFeaturesGRACE(drop_feat_p))
 
         # drop importance
         if (mu > 0.0) and (p_lambda > 0.0) and ("DropImportance" in augmentation_list):
@@ -1089,7 +1093,7 @@ def get_graph_augmentation(
             transforms.append(AddEdgesByCellType(p_add, k_add))
 
         # shuffle positions
-        if (p_rewire > 0.0) and ("ShufflePositions" in augmentation_list):
+        if (p_shuffle > 0.0) and ("ShufflePositions" in augmentation_list):
             transforms.append(ShufflePositions(p_shuffle))
 
         # apoptosis
@@ -1098,7 +1102,7 @@ def get_graph_augmentation(
 
         # mitosis
         if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
-            transforms.append(Mitosis(mitosis_p, feature_noise_std))
+            transforms.append(Mitosis(mitosis_p))
 
         # phenotype shift
         if (shift_p > 0.0) and ("PhenotypeShift" in augmentation_list):

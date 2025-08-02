@@ -1475,6 +1475,10 @@ def get_graph_augmentation(
         # drop features
         if (drop_feat_p > 0.0) and ("DropFeatures" in augmentation_list):
             transforms.append(DropFeatures(drop_feat_p))
+        
+        # drop features GRACE style (same features dropped for all nodes)
+        if (drop_feat_p > 0.0) and ("DropFeaturesGRACE" in augmentation_list):
+            transforms.append(DropFeaturesGRACE(drop_feat_p))
 
         # drop importance
         if (mu > 0.0) and (p_lambda > 0.0) and ("DropImportance" in augmentation_list):
@@ -1509,7 +1513,7 @@ def get_graph_augmentation(
             transforms.append(Apoptosis(apoptosis_p))
 
         # mitosis
-        if (mitosis_p > 0.0) and (mitosis_feature_noise_std > 0.0) and ("Mitosis" in augmentation_list):
+        if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
             transforms.append(Mitosis(mitosis_p, mitosis_feature_noise_std))
 
         # return the composed transformation
