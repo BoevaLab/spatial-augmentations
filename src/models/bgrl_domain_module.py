@@ -65,6 +65,10 @@ class BGRLDomainLitModule(LightningModule):
         feature_noise_std: float,
         p_add: float,
         k_add: int,
+        smooth_strength: float,
+        apoptosis_p: float,
+        mitosis_p: float,
+        mitosis_feature_noise_std: float,
         processed_dir: str,
         seed: int,
     ) -> None:
@@ -256,6 +260,10 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.feature_noise_std,
             self.hparams.p_add,
             self.hparams.k_add,
+            self.hparams.smooth_strength,
+            self.hparams.apoptosis_p,
+            self.hparams.mitosis_p,
+            self.hparams.mitosis_feature_noise_std,
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
@@ -270,6 +278,10 @@ class BGRLDomainLitModule(LightningModule):
             self.hparams.feature_noise_std,
             self.hparams.p_add,
             self.hparams.k_add,
+            self.hparams.smooth_strength,
+            self.hparams.apoptosis_p,
+            self.hparams.mitosis_p,
+            self.hparams.mitosis_feature_noise_std,
         )
 
         augmented1 = transform1(batch)

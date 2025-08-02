@@ -17,6 +17,7 @@ from torchmetrics.clustering import (
 
 from src.models.components.grace import GRACEModel, Encoder, drop_feature
 from src.utils.clustering_utils import set_leiden_resolution
+from src.utils.graph_augmentations_domain import get_graph_augmentation
 from src.utils.schedulers import WarmupScheduler
 
 
@@ -65,6 +66,10 @@ class GRACELitModule(LightningModule):
         feature_noise_std: float,
         p_add: float,
         k_add: int,
+        smooth_strength: float,
+        apoptosis_p: float,
+        mitosis_p: float,
+        mitosis_feature_noise_std: float,
         processed_dir: str,
         seed: int,
     ) -> None:
@@ -197,6 +202,10 @@ class GRACELitModule(LightningModule):
             self.hparams.feature_noise_std,
             self.hparams.p_add,
             self.hparams.k_add,
+            self.hparams.smooth_strength,
+            self.hparams.apoptosis_p,
+            self.hparams.mitosis_p,
+            self.hparams.mitosis_feature_noise_std,
         )
         transform2 = get_graph_augmentation(
             self.hparams.augmentation_mode,
@@ -211,17 +220,21 @@ class GRACELitModule(LightningModule):
             self.hparams.feature_noise_std,
             self.hparams.p_add,
             self.hparams.k_add,
+            self.hparams.smooth_strength,
+            self.hparams.apoptosis_p,
+            self.hparams.mitosis_p,
+            self.hparams.mitosis_feature_noise_std,
         )
 
         augmented1 = transform1(batch)
         augmented2 = transform2(batch)
 
         # Forward pass through the model
-        z1 = self.net(x_1, edge_index_1, batch.edge_weight if hasattr(batch, 'edge_weight') else None)
-        z2 = self.net(x_2, edge_index_2, batch.edge_weight if hasattr(batch, 'edge_weight') else None)
+        z1 = self.net(augmented1.x, augmented1.edge_index, augmented1.edge_weight if hasattr(augmented1, 'edge_weight') else None)
+        z2 = self.net(augmented2.x, augmented2.edge_index, augmented2.edge_weight if hasattr(augmented2, 'edge_weight') else None)
 
         # Compute contrastive loss
-        loss = self.net.loss(z1, z2, batch_size=self.hparams.batch_size)
+        loss = self.net.loss(z1, z2, batch_size=z1.size(0))
 
         # Optionally add spatial regularization term to loss
         if hasattr(batch, "position") and self.hparams.spatial_regularization_strength > 0:

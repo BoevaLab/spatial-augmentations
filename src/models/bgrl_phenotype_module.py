@@ -117,6 +117,10 @@ class BGRLPhenotypeLitModule(LightningModule):
         p_add: float,
         k_add: int,
         p_shuffle: float,
+        apoptosis_p: float,
+        mitosis_p: float,
+        shift_p: float,
+        shift_map: dict,
         seed: int,
         ckpt_file: str = None,
     ) -> None:
@@ -421,6 +425,10 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.p_add,
                 self.hparams.k_add,
                 self.hparams.p_shuffle,
+                self.hparams.apoptosis_p,
+                self.hparams.mitosis_p,
+                self.hparams.shift_p,
+                self.hparams.shift_map,
             )
             transform2 = get_graph_augmentation(
                 self.hparams.augmentation_mode,
@@ -434,6 +442,10 @@ class BGRLPhenotypeLitModule(LightningModule):
                 self.hparams.p_add,
                 self.hparams.k_add,
                 self.hparams.p_shuffle,
+                self.hparams.apoptosis_p,
+                self.hparams.mitosis_p,
+                self.hparams.shift_p,
+                self.hparams.shift_map,
             )
 
             augmented1 = transform1(batch)
