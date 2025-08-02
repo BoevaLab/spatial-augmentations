@@ -136,7 +136,7 @@ class DropFeatures:
             data.x[:, self.cell_type_feat] = types
 
         # Apply the dropout mask to all features
-        data.x[drop_mask] = 0
+        data.x[drop_mask] = self.unassigned_value
         return data
 
     def __repr__(self):
@@ -151,6 +151,51 @@ class DropFeatures:
         return "{}(p={}, cell_type_feat={}, unassigned_value={})".format(
             self.__class__.__name__, self.p, self.cell_type_feat, self.unassigned_value
         )
+
+
+class DropFeaturesGRACE:
+    """
+    Drops node features with a specified probability.
+
+    This drops the same features for all nodes, unlike DropFeatures which drops different features for different nodes.
+
+    Parameters:
+    -----------
+    p : float
+        The probability of dropping a feature. Must be between 0 and 1.
+    unassigned_value : float, optional
+        The value to assign to the features when they are dropped. Default is 0.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature dropout transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+    """
+    def __init__(self, p, unassigned_value=0):
+        self.p = p
+        self.unassigned_value = unassigned_value
+
+    def __call__(self, data):
+        drop_mask = torch.empty(
+            (data.x.size(1), ),
+            dtype=torch.float32,
+            device=data.x.device).uniform_(0, 1) < self.p
+        data.x = data.x.clone()
+        data.x[:, drop_mask] = self.unassigned_value
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p={self.p}, unassigned_value={self.unassigned_value})"
 
 
 class DropEdges:
