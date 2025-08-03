@@ -175,6 +175,14 @@ class BGRLPhenotypeLitModule(LightningModule):
             Number of new edges to add during augmentation.
         p_shuffle : float
             Probability of shuffling node positions during augmentation.
+        apoptosis_p : float
+            Probability of apoptosis augmentation.
+        mitosis_p : float
+            Probability of mitosis augmentation.
+        shift_p : float
+            Probability of shift augmentation.
+        shift_map : dict
+            Mapping for shift augmentation.
         seed : int
             Random seed for reproducibility.
         ckpt_file : str, optional
