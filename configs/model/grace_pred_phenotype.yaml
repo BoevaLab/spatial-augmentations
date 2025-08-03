@@ -1,0 +1,55 @@
+_target_: src.models.grace_phenotype_module.GRACEPhenotypeLitModule
+
+mode: "finetuning"
+
+net:
+  _target_: src.models.components.grace_pred.GRACE_pred
+  num_layer: 3
+  in_channels: 76
+  emb_dim: 256
+  num_additional_feat: 0
+  num_graph_tasks: 1
+  node_embedding_output: "last"
+  drop_ratio: 0.38
+  graph_pooling: "max"
+  gnn_type: "gcn"
+  activation: torch.nn.functional.relu
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 9.9e-05
+  weight_decay: 0.06
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  _partial_: true
+  T_max: 20000
+  eta_min: 1e-7
+
+test_thresh: 0.5  # threshold for test set
+compile: false # compile model for faster training with pytorch 2.0
+# Augmentation parameters (not used in finetuning but required by module)
+augmentation_mode: "baseline"
+augmentation_list1: []
+augmentation_list2: []
+tau: 0.5  # temperature parameter (not used in finetuning)
+drop_edge_p1: 0.0
+drop_edge_p2: 0.0
+drop_feat_p1: 0.0
+drop_feat_p2: 0.0
+mu: 0.0
+p_lambda: 0.0
+p_rewire: 0.0
+feature_noise_std: 0.0
+p_add: 0.0
+k_add: 0
+p_shuffle: 0.0
+apoptosis_p: 0.0
+mitosis_p: 0.0
+shift_p: 0.0
+shift_map: {}
+
+# Training parameters
+seed: ${seed}
+ckpt_file: null  # path to the checkpoint file for pretrained model 
