@@ -71,7 +71,7 @@ conda env create -f environment.yaml -n myenv
 # activate conda environment
 conda activate myenv
 ```
-`torch_scatter`, `torch_sparse`, and `abc_atlas` packages have to be transfered manually. The installation approaches have not been tested outside of a Linux/HPC environment. 
+`torch_scatter`, `torch_sparse`, and `abc_atlas` packages have to be transferred manually. The installation approaches have not been tested outside of a Linux/HPC environment. 
 
 #### Pip
 
