@@ -24,7 +24,7 @@ class Encoder(torch.nn.Module):
 
         self.activation = activation
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor = None, edge_attr: torch.Tensor = None):
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor = None):
         for i in range(self.k):
                 if edge_weight is not None:
                     x = self.activation(self.conv[i](x, edge_index, edge_weight))

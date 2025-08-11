@@ -16,7 +16,7 @@ from torchmetrics.classification import (
     BinaryRecall,
 )
 
-from src.models.components.grace import GRACEModel, Encoder, drop_feature
+from src.models.components.grace import GRACEModel, Encoder
 from src.models.components.grace_pred import GRACE_pred
 from src.utils import RankedLogger
 from src.utils.graph_augmentations_phenotype import get_graph_augmentation
