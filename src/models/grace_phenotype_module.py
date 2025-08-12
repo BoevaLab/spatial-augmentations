@@ -169,24 +169,46 @@ class GRACEPhenotypeLitModule(LightningModule):
         if ckpt_file is not None:
             self.load_pretrained_model(ckpt_file)
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor = None, edge_weight: torch.Tensor = None) -> torch.Tensor:
         """
         Perform a forward pass through the GRACE model.
 
         Parameters:
         ----------
-        x : torch.Tensor
-            Node features.
+        x : torch.Tensor | Data
+            Node features tensor or a torch_geometric.data.Data object.
         edge_index : torch.Tensor
-            Edge indices.
+            Edge indices (ignored if x is a Data object).
         edge_weight : torch.Tensor, optional
-            Edge weights.
+            Edge weights (ignored if x is a Data object).
 
         Returns:
         -------
         torch.Tensor
             Node embeddings from the encoder.
         """
+        # If a Data object is given, pass through directly
+        if isinstance(x, Data):
+            data = x
+            if isinstance(self.net, GRACE_pred):
+                outputs = self.net(data)
+                graph_pred = outputs[1] if len(outputs) > 1 else outputs[0]
+                return graph_pred.flatten()
+            else:
+                # Pretraining path expects tensors
+                return self.net(data.x, data.edge_index, getattr(data, "edge_attr", None))
+        # Else: tensor inputs
+        if edge_index is None:
+            raise ValueError("edge_index must be provided for tensor inputs")
+        if isinstance(self.net, GRACE_pred):
+            # Encourage callers to pass Data in finetuning; fallback for tests
+            graph = Data(x=x, edge_index=edge_index)
+            if edge_weight is not None:
+                graph.edge_attr = edge_weight if edge_weight.dim() > 1 else edge_weight.view(-1, 1)
+            outputs = self.net(graph)
+            graph_pred = outputs[1] if len(outputs) > 1 else outputs[0]
+            return graph_pred.flatten()
+        # Pretraining path returns node embeddings
         return self.net(x, edge_index, edge_weight)
 
     def forward_gnn_pred(self, data: Data) -> list:

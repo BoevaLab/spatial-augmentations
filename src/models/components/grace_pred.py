@@ -244,15 +244,11 @@ class GRACE_pred(torch.nn.Module):
         if self.num_node_tasks > 0:
             node_pred = self.node_pred_module(node_embedding)
             output.append(node_pred)
-        else:
-            output.append(None)
 
         # Graph-level predictions
         if self.num_graph_tasks > 0:
             graph_pred = self.graph_pred_module(graph_embedding)
             output.append(graph_pred)
-        else:
-            output.append(None)
 
         # Return additional embeddings if requested
         if return_node_embedding:
