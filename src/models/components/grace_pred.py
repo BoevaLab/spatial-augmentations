@@ -63,7 +63,9 @@ class GRACE_pred(torch.nn.Module):
         num_layer=2,
         in_channels=76,
         emb_dim=256,
+        num_node_type=30,
         num_additional_feat=0,
+        num_feat=0,
         num_node_tasks=0,
         num_graph_tasks=1,
         node_embedding_output="last",
@@ -86,7 +88,10 @@ class GRACE_pred(torch.nn.Module):
             out_channels=emb_dim,
             activation=activation,
             base_model=self._get_base_model(gnn_type),
+            num_node_type=num_node_type,
+            num_feat=num_feat,
             k=num_layer,
+            node_embedding_output=node_embedding_output,
         )
 
         # Different kind of graph pooling
@@ -143,9 +148,8 @@ class GRACE_pred(torch.nn.Module):
             )
 
     def _get_base_model(self, gnn_type):
-        """Get the base GNN model based on the specified type."""
-        from torch_geometric.nn import GCNConv, GATConv, SAGEConv
-        from .gnn import GINConv
+        """Get the base GNN model based on the specified type (custom layers only)."""
+        from .gnn import GCNConv, GATConv, GraphSAGEConv, GINConv
         
         if gnn_type == "gin":
             return GINConv
@@ -154,7 +158,7 @@ class GRACE_pred(torch.nn.Module):
         elif gnn_type == "gat":
             return GATConv
         elif gnn_type == "graphsage":
-            return SAGEConv
+            return GraphSAGEConv
         else:
             raise ValueError(f"Unsupported GNN type: {gnn_type}")
 
@@ -212,19 +216,26 @@ class GRACE_pred(torch.nn.Module):
         if node_feat_mask is not None:
             x = x * node_feat_mask
 
+        # Determine batch vector (single graph -> zeros)
+        batch_vec = batch if batch is not None else torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+
         # Get node embeddings from GRACE encoder
         node_embedding = self.encoder(x, edge_index, edge_attr)
+
+        # Append graph-level additional features to node embeddings BEFORE pooling (match gnn.GNN_pred)
+        if hasattr(data, 'additional_feat') and data.additional_feat is not None:
+            add_feat = data.additional_feat.to(node_embedding.device)
+            if add_feat.dim() == 1:
+                add_feat = add_feat.view(-1, 1)
+            add_feat = add_feat[batch_vec]
+            node_embedding = torch.cat([node_embedding, add_feat], dim=1)
 
         # Apply dropout
         if self.drop_ratio > 0:
             node_embedding = F.dropout(node_embedding, p=self.drop_ratio, training=self.training)
 
         # Graph pooling
-        if batch is not None:
-            graph_embedding = self.pool(node_embedding, batch)
-        else:
-            # If no batch information, assume single graph
-            graph_embedding = self.pool(node_embedding, torch.zeros(x.size(0), dtype=torch.long, device=x.device))
+        graph_embedding = self.pool(node_embedding, batch_vec)
 
         # Initialize output list
         output = []
@@ -238,10 +249,6 @@ class GRACE_pred(torch.nn.Module):
 
         # Graph-level predictions
         if self.num_graph_tasks > 0:
-            # Add additional features if provided
-            if hasattr(data, 'additional_feat') and data.additional_feat is not None:
-                graph_embedding = torch.cat([graph_embedding, data.additional_feat], dim=1)
-            
             graph_pred = self.graph_pred_module(graph_embedding)
             output.append(graph_pred)
         else:
