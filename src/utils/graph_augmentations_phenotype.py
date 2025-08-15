@@ -928,10 +928,6 @@ class PhenotypeShift:
     def __init__(self, shift_p: float, shift_map: dict, cell_type_feat: int = 0):
         if not 0.0 <= shift_p <= 1.0:
             raise ValueError(f"shift_p must be between 0 and 1, got {shift_p}")
-        if not isinstance(shift_map, dict) or not all(isinstance(k, int) and isinstance(v, (list, tuple)) for k, v in shift_map.items()):
-            raise TypeError("shift_map must be a dict[int, list[int]] of integer labels.")
-        if not isinstance(cell_type_feat, int) or cell_type_feat < 0:
-            raise ValueError("cell_type_feat must be a non-negative integer index.")
         self.shift_p = shift_p
         # copy map to internal Python dict of ints
         self.shift_map = {int(k): [int(x) for x in v] for k, v in shift_map.items()}
