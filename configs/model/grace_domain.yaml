@@ -4,12 +4,10 @@ _target_: src.models.grace_domain_module.GRACELitModule
 net:
   _target_: src.models.components.grace.GRACEModel
   encoder:
-    _target_: src.models.components.grace.Encoder
-    in_channels: ${data.num_features}
+    _target_: src.models.components.grace.TwoLayerGCNEncoder
+    in_channels: 50
     out_channels: 256
-    activation: torch.nn.functional.relu
-    base_model: torch_geometric.nn.GCNConv
-    k: 2
+    dropout: 0.5
   num_hidden: 256
   num_proj_hidden: 256
   tau: 0.5
@@ -17,12 +15,15 @@ net:
 # Training configuration
 optimizer:
   _target_: torch.optim.Adam
+  _partial_: true
   lr: 0.001
   weight_decay: 1e-5
 
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-  T_max: 1000
+  _partial_: true
+  T_max: 2000
+  eta_min: 1e-7
 
 compile: false
 
@@ -55,6 +56,3 @@ node_subset_sz: 1000
 # Data and other parameters
 processed_dir: ${paths.processed_dir}
 seed: ${seed}
-
-# Warmup configuration
-warmup_steps: 100 

@@ -96,6 +96,30 @@ class Encoder(torch.nn.Module):
         self.gnn.reset_parameters()
 
 
+class TwoLayerGCNEncoder(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, dropout: float = 0.5):
+        super().__init__()
+        from .two_layer_gcn import TwoLayerGCN
+        self.gnn = TwoLayerGCN(
+            input_size=in_channels,
+            hidden_size=out_channels,
+            output_size=out_channels,
+            dropout=dropout,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_weight: torch.Tensor = None,
+        edge_attr: torch.Tensor = None,
+    ) -> torch.Tensor:
+        return self.gnn(x, edge_index, edge_weight)
+
+    def reset_parameters(self):
+        self.gnn.reset_parameters()
+
+
 class GRACEModel(torch.nn.Module):
     """GRACE (Graph Contrastive Learning) model."""
 

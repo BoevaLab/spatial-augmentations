@@ -552,14 +552,7 @@ class GRACELitModule(LightningModule):
         """
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
-            base_lr = optimizer.param_groups[0]["lr"]
-            after_scheduler = self.hparams.scheduler(optimizer=optimizer)
-            scheduler = WarmupScheduler(
-                optimizer=optimizer,
-                base_lr=base_lr,
-                warmup_steps=self.hparams.warmup_steps,
-                after_scheduler=after_scheduler,
-            )
+            scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
