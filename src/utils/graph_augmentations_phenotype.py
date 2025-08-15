@@ -125,6 +125,51 @@ class DropFeatures:
         )
 
 
+class DropFeaturesGRACE:
+    """
+    Drops node features with a specified probability.
+
+    This drops the same features for all nodes, unlike DropFeatures which drops different features for different nodes.
+
+    Parameters:
+    -----------
+    p : float
+        The probability of dropping a feature. Must be between 0 and 1.
+    unassigned_value : float, optional
+        The value to assign to the features when they are dropped. Default is 0.
+
+    Methods:
+    --------
+    __call__(data):
+        Applies the feature dropout transformation to the input graph data.
+    __repr__():
+        Returns a string representation of the transformation.
+    """
+    def __init__(self, p, unassigned_value=0):
+        self.p = p
+        self.unassigned_value = unassigned_value
+
+    def __call__(self, data):
+        drop_mask = torch.empty(
+            (data.x.size(1), ),
+            dtype=torch.float32,
+            device=data.x.device).uniform_(0, 1) < self.p
+        data.x = data.x.clone()
+        data.x[:, drop_mask] = self.unassigned_value
+        return data
+
+    def __repr__(self):
+        """
+        Returns a string representation of the transformation.
+
+        Returns:
+        --------
+        str
+            A string describing the transformation and its parameters.
+        """
+        return f"{self.__class__.__name__}(p={self.p}, unassigned_value={self.unassigned_value})"
+
+
 class DropEdges:
     """
     Drops edges with a specified probability.
@@ -883,10 +928,6 @@ class PhenotypeShift:
     def __init__(self, shift_p: float, shift_map: dict, cell_type_feat: int = 0):
         if not 0.0 <= shift_p <= 1.0:
             raise ValueError(f"shift_p must be between 0 and 1, got {shift_p}")
-        if not isinstance(shift_map, dict) or not all(isinstance(k, int) and isinstance(v, (list, tuple)) for k, v in shift_map.items()):
-            raise TypeError("shift_map must be a dict[int, list[int]] of integer labels.")
-        if not isinstance(cell_type_feat, int) or cell_type_feat < 0:
-            raise ValueError("cell_type_feat must be a non-negative integer index.")
         self.shift_p = shift_p
         # copy map to internal Python dict of ints
         self.shift_map = {int(k): [int(x) for x in v] for k, v in shift_map.items()}
@@ -1026,6 +1067,10 @@ def get_graph_augmentation(
         # drop features
         if (drop_feat_p > 0.0) and ("DropFeatures" in augmentation_list):
             transforms.append(DropFeatures(drop_feat_p))
+        
+        # drop features GRACE style (same features dropped for all nodes)
+        if (drop_feat_p > 0.0) and ("DropFeaturesGRACE" in augmentation_list):
+            transforms.append(DropFeaturesGRACE(drop_feat_p))
 
         # drop importance
         if (mu > 0.0) and (p_lambda > 0.0) and ("DropImportance" in augmentation_list):
@@ -1044,7 +1089,7 @@ def get_graph_augmentation(
             transforms.append(AddEdgesByCellType(p_add, k_add))
 
         # shuffle positions
-        if (p_rewire > 0.0) and ("ShufflePositions" in augmentation_list):
+        if (p_shuffle > 0.0) and ("ShufflePositions" in augmentation_list):
             transforms.append(ShufflePositions(p_shuffle))
 
         # apoptosis
@@ -1053,7 +1098,7 @@ def get_graph_augmentation(
 
         # mitosis
         if (mitosis_p > 0.0) and ("Mitosis" in augmentation_list):
-            transforms.append(Mitosis(mitosis_p, feature_noise_std))
+            transforms.append(Mitosis(mitosis_p))
 
         # phenotype shift
         if (shift_p > 0.0) and ("PhenotypeShift" in augmentation_list):
