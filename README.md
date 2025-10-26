@@ -15,12 +15,11 @@ Graph augmentation strategies for self-supervised pretraining of graph neural ne
 
 **Spatial Augmentations** is a research framework for exploring and benchmarking graph-based data augmentation strategies to improve Graph Neural Network (GNN) pretraining on spatial omics datasets (e.g., spatial transcriptomics, spatial proteomics). This project is built on [PyTorch Lightning](https://lightning.ai/) and [Hydra](https://hydra.cc/) for modularity, reproducibility, and ease of experimentation.
 
-The key method used is **Bootstrapped Graph Latents (BGRL)** ([Thakoor et al., 2021](https://arxiv.org/abs/2102.06514)) for self-supervised pretraining of GNNs via graph augmentations. Augmentation strategies are evaluated on two representative tasks: domain identification and phenotype prediction.
+The key methods used are **Bootstrapped Graph Latents (BGRL)** ([Thakoor et al., 2021](https://arxiv.org/abs/2102.06514)) and **GRACE** ([Zhu et al., 2022](https://arxiv.org/abs/2006.04131)) for self-supervised pretraining of GNNs via graph augmentations. Augmentation strategies are evaluated on two representative tasks: domain identification and phenotype prediction.
 
-This repository is associated with the ETH Zürich semester project:\
-**“Exploring Augmentation-Driven Inductive Biases for Pretraining Graph Neural Networks in Spatial Omics”**\
-Student: Michel Tarnow\
-Supervisors: Lovro Rabuzin, Prof. Dr. Valentina Boeva
+This repository is associated with the NeurIPS workshop paper:\
+**“Exploring Augmentation-Driven Invariances for Graph Self-supervised Learning in Spatial Omics”**\
+Authors: Lovro Rabuzin, Michel Tarnow, Prof. Dr. Valentina Boeva
 
 ## Project Structure
 
